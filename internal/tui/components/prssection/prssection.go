@@ -3,6 +3,7 @@ package prssection
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -25,7 +26,8 @@ const SectionType = "pr"
 
 type Model struct {
 	section.BaseModel
-	Prs []prrow.Data
+	Prs         []prrow.Data
+	NotifyOnNew bool
 }
 
 func NewModel(
@@ -50,6 +52,7 @@ func NewModel(
 		},
 	)
 	m.Prs = []prrow.Data{}
+	m.NotifyOnNew = cfg.Notify
 
 	return m
 }
@@ -153,6 +156,11 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 
 		case key.Matches(msg, keys.PRKeys.WatchChecks):
 			cmd = m.watchChecks()
+
+		case key.Matches(msg, keys.PRKeys.ToggleMerged):
+			m.toggleMergedFilter()
+			m.ResetRows()
+			return m, tea.Batch(m.FetchNextPageSectionRows()...)
 		}
 
 	case tasks.UpdatePRMsg:
@@ -198,6 +206,25 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 
 	case SectionPullRequestsFetchedMsg:
 		if m.LastFetchTaskId == msg.TaskId {
+			// Notify for new PRs on fresh fetches (not pagination appends, not merged view)
+			if m.NotifyOnNew && m.PageInfo == nil && !strings.Contains(m.SearchValue, "is:merged") {
+				store := data.GetSeenStore()
+				urls := make([]string, len(msg.Prs))
+				for i, pr := range msg.Prs {
+					urls[i] = pr.Primary.Url
+				}
+				if !store.SeedIfNeeded(urls) {
+					count := 0
+					for _, pr := range msg.Prs {
+						if !store.IsSeen(pr.Primary.Url) && count < 5 {
+							notifyNewPR(m.Ctx, pr.Primary)
+							count++
+						}
+						store.MarkSeen(pr.Primary.Url)
+					}
+				}
+			}
+
 			if m.PageInfo != nil {
 				m.Prs = append(m.Prs, msg.Prs...)
 			} else {
@@ -271,6 +298,7 @@ func GetSectionColumns(
 	ciLayout := config.MergeColumnConfigs(dLayout.Ci, sLayout.Ci)
 	labelsLayout := config.MergeColumnConfigs(dLayout.Labels, sLayout.Labels)
 	linesLayout := config.MergeColumnConfigs(dLayout.Lines, sLayout.Lines)
+	requestedTeamsLayout := config.MergeColumnConfigs(dLayout.RequestedTeams, sLayout.RequestedTeams)
 
 	if !ctx.Config.Theme.Ui.Table.Compact {
 		return []table.Column{
@@ -308,6 +336,11 @@ func GetSectionColumns(
 				Title:  "󰯢",
 				Width:  utils.IntPtr(4),
 				Hidden: reviewStatusLayout.Hidden,
+			},
+			{
+				Title:  "Via",
+				Width:  requestedTeamsLayout.Width,
+				Hidden: requestedTeamsLayout.Hidden,
 			},
 			{
 				Title:  "",
@@ -378,6 +411,11 @@ func GetSectionColumns(
 			Title:  "󰯢",
 			Width:  utils.IntPtr(4),
 			Hidden: reviewStatusLayout.Hidden,
+		},
+		{
+			Title:  "Via",
+			Width:  requestedTeamsLayout.Width,
+			Hidden: requestedTeamsLayout.Hidden,
 		},
 		{
 			Title:  "",
@@ -522,6 +560,17 @@ func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 func (m *Model) ResetRows() {
 	m.Prs = nil
 	m.BaseModel.ResetRows()
+}
+
+func (m *Model) toggleMergedFilter() {
+	search := m.SearchValue
+	if strings.Contains(search, "is:open") {
+		search = strings.Replace(search, "is:open", "is:merged", 1)
+	} else if strings.Contains(search, "is:merged") {
+		search = strings.Replace(search, "is:merged", "is:open", 1)
+	}
+	m.SearchValue = search
+	m.SearchBar.SetValue(search)
 }
 
 func FetchAllSections(
