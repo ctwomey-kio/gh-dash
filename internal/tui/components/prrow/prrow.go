@@ -192,8 +192,7 @@ func (pr *PullRequest) renderExtendedTitle(isSelected bool) string {
 			Background(pr.Ctx.Theme.SelectedBackground)
 	}
 
-	author := baseStyle.Bold(true).Render(fmt.Sprintf("@%s",
-		pr.Data.Primary.GetAuthor(pr.Ctx.Theme, pr.ShowAuthorIcon)))
+	author := baseStyle.Bold(true).Render(pr.Data.Primary.GetAuthor(pr.Ctx.Theme, pr.ShowAuthorIcon))
 	top := lipgloss.JoinHorizontal(lipgloss.Top, pr.Data.Primary.Repository.NameWithOwner,
 		fmt.Sprintf(" #%d by %s", pr.Data.Primary.Number, author))
 	branchHidden := pr.Ctx.Config.Defaults.Layout.Prs.Base.Hidden
@@ -223,6 +222,28 @@ func (pr *PullRequest) renderExtendedTitle(isSelected bool) string {
 
 func (pr *PullRequest) renderAuthor() string {
 	return pr.getTextStyle().Render(pr.Data.Primary.GetAuthor(pr.Ctx.Theme, pr.ShowAuthorIcon))
+}
+
+func (pr *PullRequest) renderRequestedTeams() string {
+	teams := pr.Data.Primary.GetRequestedTeams()
+	if len(teams) == 0 {
+		return ""
+	}
+	myTeams := make(map[string]bool, len(pr.Ctx.MyTeamSlugs))
+	for _, t := range pr.Ctx.MyTeamSlugs {
+		myTeams[t] = true
+	}
+	mine := pr.getTextStyle().Bold(true)
+	other := pr.getTextStyle().Faint(true)
+	parts := make([]string, 0, len(teams))
+	for _, t := range teams {
+		if myTeams[t] {
+			parts = append(parts, mine.Render(t))
+		} else {
+			parts = append(parts, other.Render(t))
+		}
+	}
+	return strings.Join(parts, pr.getTextStyle().Render(", "))
 }
 
 func (pr *PullRequest) renderAssignees() string {
@@ -394,6 +415,7 @@ func (pr *PullRequest) ToTableRow(isSelected bool) table.Row {
 			pr.renderBaseName(),
 			pr.renderNumComments(),
 			pr.renderReviewStatus(),
+			pr.renderRequestedTeams(),
 			pr.renderCiStatus(),
 			pr.RenderLines(isSelected),
 			pr.renderUpdateAt(),
@@ -411,6 +433,7 @@ func (pr *PullRequest) ToTableRow(isSelected bool) table.Row {
 		pr.renderBaseName(),
 		pr.renderNumComments(),
 		pr.renderReviewStatus(),
+		pr.renderRequestedTeams(),
 		pr.renderCiStatus(),
 		pr.RenderLines(isSelected),
 		pr.renderUpdateAt(),
