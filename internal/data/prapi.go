@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"charm.land/log/v2"
@@ -68,7 +69,10 @@ type PullRequestData struct {
 	Title  string
 	Body   string
 	Author struct {
-		Login string
+		Login  string
+		AsUser struct {
+			Name string
+		} `graphql:"... on User"`
 	}
 	AuthorAssociation string
 	UpdatedAt         time.Time
@@ -390,12 +394,37 @@ type PageInfo struct {
 	EndCursor   string
 }
 
+// GetAuthorDisplayName returns a human-readable name.
+// If the author has a full name (e.g. "Jane Smith") it returns "Jane S".
+// Otherwise it returns "@login".
+func (data PullRequestData) GetAuthorDisplayName() string {
+	if name := data.Author.AsUser.Name; name != "" {
+		parts := strings.Fields(name)
+		if len(parts) >= 2 {
+			return parts[0] + " " + string([]rune(parts[len(parts)-1])[:1])
+		}
+		return name
+	}
+	return "@" + data.Author.Login
+}
+
 func (data PullRequestData) GetAuthor(theme theme.Theme, showAuthorIcon bool) string {
-	author := data.Author.Login
+	author := data.GetAuthorDisplayName()
 	if showAuthorIcon {
 		author += fmt.Sprintf(" %s", GetAuthorRoleIcon(data.AuthorAssociation, theme))
 	}
 	return author
+}
+
+// GetRequestedTeams returns the slugs of all teams requested to review this PR.
+func (data PullRequestData) GetRequestedTeams() []string {
+	teams := make([]string, 0)
+	for _, node := range data.ReviewRequests.Nodes {
+		if node.IsTeam() {
+			teams = append(teams, node.RequestedReviewer.Team.Slug)
+		}
+	}
+	return teams
 }
 
 func (data PullRequestData) GetTitle() string {
@@ -433,7 +462,12 @@ func (e EnrichedPullRequestData) ToPullRequestData() PullRequestData {
 		Number:            e.Number,
 		Title:             e.Title,
 		Body:              e.Body,
-		Author:            e.Author,
+		Author: struct {
+			Login  string
+			AsUser struct {
+				Name string
+			} `graphql:"... on User"`
+		}{Login: e.Author.Login},
 		AuthorAssociation: e.AuthorAssociation,
 		UpdatedAt:         e.UpdatedAt,
 		CreatedAt:         e.CreatedAt,
