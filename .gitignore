@@ -2,6 +2,7 @@ debug.log
 dist
 gh-prs
 /gh-dash
+/gh-dash-ai
 .direnv/
 /result*
 .DS_Store
