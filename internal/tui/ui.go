@@ -665,6 +665,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ctx.AIClient = c
 				m.ctx.AICache = ai.NewSummaryCache(100)
 				m.ctx.AINotifCache = ai.NewCache[ai.NotificationSummaryResponse](100)
+				log.Info("AI client initialized", "model", m.ctx.Config.AI.Model)
+			} else {
+				log.Error("AI client init failed — AI features disabled", "err", err)
 			}
 		}
 
