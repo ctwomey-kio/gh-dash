@@ -94,6 +94,7 @@ type PrsSectionConfig struct {
 	Limit   *int            `yaml:"limit,omitempty"`
 	Layout  PrsLayoutConfig `yaml:"layout,omitempty"`
 	Type    *ViewType       `yaml:"type,omitempty"`
+	Notify  bool            `yaml:"notify,omitempty"`
 }
 
 type IssuesSectionConfig struct {
@@ -158,11 +159,12 @@ type PrsLayoutConfig struct {
 	Assignees    ColumnConfig `yaml:"assignees,omitempty"`
 	Title        ColumnConfig `yaml:"title,omitempty"`
 	Base         ColumnConfig `yaml:"base,omitempty"`
-	ReviewStatus ColumnConfig `yaml:"reviewStatus,omitempty"`
-	State        ColumnConfig `yaml:"state,omitempty"`
-	Ci           ColumnConfig `yaml:"ci,omitempty"`
-	Lines        ColumnConfig `yaml:"lines,omitempty"`
-	NumComments  ColumnConfig `yaml:"numComments,omitempty"`
+	ReviewStatus    ColumnConfig `yaml:"reviewStatus,omitempty"`
+	RequestedTeams  ColumnConfig `yaml:"requestedTeams,omitempty"`
+	State           ColumnConfig `yaml:"state,omitempty"`
+	Ci              ColumnConfig `yaml:"ci,omitempty"`
+	Lines           ColumnConfig `yaml:"lines,omitempty"`
+	NumComments     ColumnConfig `yaml:"numComments,omitempty"`
 }
 
 type IssuesLayoutConfig struct {
@@ -315,6 +317,11 @@ type ThemeConfig struct {
 	Icons  *IconThemeConfig  `yaml:"icons,omitempty"  validate:"omitempty"`
 }
 
+type AIConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Model   string `yaml:"model,omitempty"` // defaults to claude-sonnet-4-20250514
+}
+
 type Config struct {
 	PRSections               []PrsSectionConfig           `yaml:"prSections"`
 	IssuesSections           []IssuesSectionConfig        `yaml:"issuesSections"`
@@ -329,6 +336,7 @@ type Config struct {
 	ShowAuthorIcons          bool                         `yaml:"showAuthorIcons,omitempty"`
 	SmartFilteringAtLaunch   bool                         `yaml:"smartFilteringAtLaunch"                         default:"true"`
 	IncludeReadNotifications bool                         `yaml:"includeReadNotifications"                       default:"true"`
+	AI                       AIConfig                     `yaml:"ai,omitempty"`
 }
 
 type configError struct {
@@ -385,6 +393,10 @@ func (parser ConfigParser) getDefaultConfig() Config {
 					},
 					Lines: ColumnConfig{
 						Width: utils.IntPtr(lipgloss.Width(" +31.4k -31.6k ")),
+					},
+					RequestedTeams: ColumnConfig{
+						Width:  utils.IntPtr(12),
+						Hidden: utils.BoolPtr(true),
 					},
 				},
 				Issues: IssuesLayoutConfig{
