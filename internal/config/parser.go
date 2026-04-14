@@ -94,7 +94,6 @@ type PrsSectionConfig struct {
 	Limit   *int            `yaml:"limit,omitempty"`
 	Layout  PrsLayoutConfig `yaml:"layout,omitempty"`
 	Type    *ViewType       `yaml:"type,omitempty"`
-	Notify  bool            `yaml:"notify,omitempty"`
 }
 
 type IssuesSectionConfig struct {

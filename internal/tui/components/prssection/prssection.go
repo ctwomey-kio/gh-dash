@@ -26,8 +26,7 @@ const SectionType = "pr"
 
 type Model struct {
 	section.BaseModel
-	Prs         []prrow.Data
-	NotifyOnNew bool
+	Prs []prrow.Data
 }
 
 func NewModel(
@@ -52,7 +51,6 @@ func NewModel(
 		},
 	)
 	m.Prs = []prrow.Data{}
-	m.NotifyOnNew = cfg.Notify
 
 	return m
 }
@@ -206,25 +204,6 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 
 	case SectionPullRequestsFetchedMsg:
 		if m.LastFetchTaskId == msg.TaskId {
-			// Notify for new PRs on fresh fetches (not pagination appends, not merged view)
-			if m.NotifyOnNew && m.PageInfo == nil && !strings.Contains(m.SearchValue, "is:merged") {
-				store := data.GetSeenStore()
-				urls := make([]string, len(msg.Prs))
-				for i, pr := range msg.Prs {
-					urls[i] = pr.Primary.Url
-				}
-				if !store.SeedIfNeeded(urls) {
-					count := 0
-					for _, pr := range msg.Prs {
-						if !store.IsSeen(pr.Primary.Url) && count < 5 {
-							notifyNewPR(m.Ctx, pr.Primary)
-							count++
-						}
-						store.MarkSeen(pr.Primary.Url)
-					}
-				}
-			}
-
 			if m.PageInfo != nil {
 				m.Prs = append(m.Prs, msg.Prs...)
 			} else {
