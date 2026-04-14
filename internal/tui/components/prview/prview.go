@@ -1,15 +1,19 @@
 package prview
 
 import (
+	stdctx "context"
 	"fmt"
 	"image/color"
 	"regexp"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	log "charm.land/log/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/dlvhdr/gh-dash/v4/internal/ai"
 	"github.com/dlvhdr/gh-dash/v4/internal/data"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/common"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/carousel"
@@ -39,9 +43,54 @@ type Model struct {
 	carousel        carousel.Model
 	editor          cmpcontroller.Controller
 	summaryViewMore bool
+
+	aiSummary          *ai.PRSummaryResponse
+	aiSummaryLoading   bool
+	aiSummaryError     error
+	aiSummaryDuration  time.Duration
+	aiStreamAccum      string
+	aiStreamCancel     stdctx.CancelFunc
 }
 
-var tabs = []string{" Overview", " Activity", " Commits", " Checks", " Files Changed"}
+var tabs = []string{"󱹺 AI Summary", " Overview", " Activity", " Commits", " Checks", " Files Changed"}
+
+// AISummaryMsg carries the final result of an AI summary fetch (streaming or cache hit).
+type AISummaryMsg struct {
+	PRURL     string
+	UpdatedAt time.Time
+	Duration  time.Duration
+	Data      *ai.PRSummaryResponse
+	Err       error
+}
+
+// AISummaryChunkMsg carries one streamed text chunk during an in-flight AI summary.
+type AISummaryChunkMsg struct {
+	PRURL  string
+	Chunk  string
+	reader aiStreamReader
+}
+
+// Next returns a tea.Cmd that reads the next chunk (or final result) from the stream.
+func (msg AISummaryChunkMsg) Next() tea.Cmd { return msg.reader.Next() }
+
+// aiStreamReader drives the bubbletea subscription loop for a streaming AI response.
+type aiStreamReader struct {
+	prURL     string
+	updatedAt time.Time
+	textCh    <-chan string
+	doneCh    <-chan AISummaryMsg
+}
+
+func (r aiStreamReader) Next() tea.Cmd {
+	return func() tea.Msg {
+		chunk, ok := <-r.textCh
+		if ok {
+			return AISummaryChunkMsg{PRURL: r.prURL, Chunk: chunk, reader: r}
+		}
+		// textCh closed — stream finished, pick up the parsed result
+		return <-r.doneCh
+	}
+}
 
 func NewModel(ctx *context.ProgramContext) Model {
 	c := carousel.New(
@@ -142,7 +191,10 @@ func (m Model) View() string {
 	body := strings.Builder{}
 
 	switch m.carousel.SelectedItem() {
-	case tabs[0]:
+		case tabs[0]:
+		body.WriteString(m.renderAISummary())
+	
+		case tabs[1]:
 		reviewers := m.renderRequestedReviewers()
 		if reviewers != "" {
 			body.WriteString(reviewers)
@@ -172,19 +224,17 @@ func (m Model) View() string {
 		if editorView := m.editor.View(); editorView != "" {
 			body.WriteString(editorView)
 		}
-
-	case tabs[1]:
+		case tabs[2]:
 		body.WriteString(m.renderActivity())
-	case tabs[2]:
+		case tabs[3]:
 		body.WriteString(m.renderCommits())
-	case tabs[3]:
+		case tabs[4]:
 		body.WriteString(m.renderChecksOverview())
 		body.WriteString("\n\n")
 		body.WriteString(m.renderChecks())
-	case tabs[4]:
+		case tabs[5]:
 		body.WriteString(m.renderChangedFiles())
 	}
-
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header.String(),
 		lipgloss.NewStyle().Padding(0, m.ctx.Styles.Sidebar.ContentPadding).Render(body.String()),
@@ -443,7 +493,7 @@ func (m *Model) renderAuthor() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top,
 		" by ",
 		lipgloss.NewStyle().Foreground(m.ctx.Theme.PrimaryText).Render(
-			lipgloss.NewStyle().Bold(true).Render("@"+m.pr.Data.Primary.Author.Login)),
+			lipgloss.NewStyle().Bold(true).Render(m.pr.Data.Primary.GetAuthorDisplayName())),
 		lipgloss.NewStyle().Foreground(m.ctx.Theme.FaintText).Render(
 			lipgloss.JoinHorizontal(lipgloss.Top, " ⋅ ", time, " ago", " ⋅ ")),
 		lipgloss.NewStyle().Foreground(m.ctx.Theme.FaintText).Render(
@@ -516,10 +566,24 @@ func (m *Model) SetSectionId(id int) {
 }
 
 func (m *Model) SetRow(d *prrow.Data) {
+	// Only reset AI state when switching to a different PR.
+	// syncSidebar calls SetRow frequently for re-renders of the same PR
+	// (e.g. after the AI summary arrives), and we must not wipe the summary.
+	isDifferentPR := d == nil || m.pr == nil || m.pr.Data.Primary.Url != d.Primary.Url
 	if d == nil {
 		m.pr = nil
 	} else {
 		m.pr = &prrow.PullRequest{Ctx: m.ctx, Data: d}
+	}
+	if isDifferentPR {
+		// Don't cancel in-flight streams — let them finish and populate the cache.
+		// When the user returns to this PR the result will be a cache hit.
+		m.aiStreamCancel = nil
+		m.aiStreamAccum = ""
+		m.aiSummary = nil
+		m.aiSummaryLoading = false
+		m.aiSummaryError = nil
+		m.aiSummaryDuration = 0
 	}
 }
 
@@ -735,6 +799,116 @@ func (m *Model) SetEnrichedPR(data data.EnrichedPullRequestData) {
 		m.pr.Data.Enriched = data
 		m.pr.Data.IsEnriched = true
 	}
+}
+
+// FetchAISummary returns a tea.Cmd that calls the Anthropic API to summarize the current PR.
+// It checks the in-memory cache first and fires the network request only on a cache miss.
+func (m *Model) FetchAISummary() tea.Cmd {
+	if m == nil || m.pr == nil || !m.pr.Data.IsEnriched {
+		log.Debug("FetchAISummary: skipped — not enriched or no PR")
+		return nil
+	}
+	if m.ctx == nil || m.ctx.AIClient == nil {
+		log.Debug("FetchAISummary: skipped — AIClient nil")
+		return nil
+	}
+
+	prURL := m.pr.Data.Primary.Url
+	updatedAt := m.pr.Data.Primary.UpdatedAt
+
+	// Cache hit: return result immediately as a tea.Msg without an API call
+	cacheKey := ai.CacheKey{URL: prURL, UpdatedAt: updatedAt}
+	if cached, ok := m.ctx.AICache.Get(cacheKey); ok {
+		c := cached
+		m.aiSummaryLoading = true
+		return func() tea.Msg {
+			return AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Data: &c}
+		}
+	}
+
+	m.aiSummaryLoading = true
+	m.aiSummaryError = nil
+	m.aiSummary = nil
+	m.aiStreamAccum = ""
+	log.Debug("FetchAISummary: starting stream", "url", prURL)
+
+	payload := ai.BuildPRPromptPayload(m.pr.Data.Primary, m.pr.Data.Enriched)
+	client := m.ctx.AIClient
+
+	textCh := make(chan string, 64)
+	doneCh := make(chan AISummaryMsg, 1)
+
+	ctx, cancel := stdctx.WithTimeout(stdctx.Background(), 30*time.Second)
+	m.aiStreamCancel = cancel
+
+	go func() {
+		defer close(textCh)
+		start := time.Now()
+		raw, err := client.StreamSummary(ctx, ai.Request{Mode: ai.PRSummary, Payload: payload}, textCh)
+		elapsed := time.Since(start)
+		cancel()
+
+		if err != nil && err != stdctx.Canceled {
+			log.Error("FetchAISummary: stream error", "err", err, "elapsed", elapsed)
+			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, Err: err}
+			return
+		}
+		if err == stdctx.Canceled {
+			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, Err: err}
+			return
+		}
+
+		parsed, parseErr := ai.ParsePRSummary(raw)
+		if parseErr != nil {
+			log.Error("FetchAISummary: parse error", "err", parseErr, "elapsed", elapsed)
+			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, Err: parseErr}
+			return
+		}
+
+		log.Debug("FetchAISummary: stream complete", "url", prURL, "elapsed", elapsed)
+		doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, Data: &parsed}
+	}()
+
+	reader := aiStreamReader{prURL: prURL, updatedAt: updatedAt, textCh: textCh, doneCh: doneCh}
+	return reader.Next()
+}
+
+// AppendAIStreamChunk appends a streamed text chunk to the accumulator shown while loading.
+func (m *Model) AppendAIStreamChunk(chunk string) {
+	m.aiStreamAccum += chunk
+}
+
+// IsCurrentPR returns true if the given URL matches the currently displayed PR.
+func (m *Model) IsCurrentPR(url string) bool {
+	return m.pr != nil && m.pr.Data.Primary.Url == url
+}
+
+// SetAISummary handles an AISummaryMsg. Always caches successful results so that
+// background goroutines (started when the user navigated away) warm the cache.
+// Display state is only updated when the message is for the currently shown PR.
+func (m *Model) SetAISummary(msg AISummaryMsg) {
+	isCurrentPR := m.pr != nil && m.pr.Data.Primary.Url == msg.PRURL
+
+	// Always store successful results in cache — even for PRs the user has navigated away from.
+	if msg.Err == nil && msg.Data != nil && m.ctx != nil && m.ctx.AICache != nil {
+		log.Debug("SetAISummary: caching result", "url", msg.PRURL, "isCurrent", isCurrentPR)
+		m.ctx.AICache.Set(ai.CacheKey{URL: msg.PRURL, UpdatedAt: msg.UpdatedAt}, *msg.Data)
+	}
+
+	if !isCurrentPR {
+		return
+	}
+
+	// Update display state for the currently shown PR.
+	m.aiSummaryLoading = false
+	if msg.Err != nil {
+		log.Error("SetAISummary: error", "err", msg.Err)
+		m.aiSummaryError = msg.Err
+		return
+	}
+	log.Debug("SetAISummary: displayed summary", "url", msg.PRURL, "duration", msg.Duration)
+	m.aiSummary = msg.Data
+	m.aiSummaryDuration = msg.Duration
 }
 
 func (m *Model) GetIsLabeling() bool {
