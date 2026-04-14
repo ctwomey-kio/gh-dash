@@ -107,7 +107,8 @@ type IssuesSectionConfig struct {
 type NotificationsSectionConfig struct {
 	Title   string
 	Filters string
-	Limit   *int `yaml:"limit,omitempty"`
+	Limit   *int  `yaml:"limit,omitempty"`
+	Notify  bool  `yaml:"notify,omitempty"`
 }
 
 type PreviewConfig struct {

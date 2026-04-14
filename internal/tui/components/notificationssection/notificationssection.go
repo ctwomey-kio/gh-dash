@@ -1,9 +1,11 @@
 package notificationssection
 
 import (
+	gocontext "context"
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,8 +14,10 @@ import (
 	"charm.land/lipgloss/v2"
 	"charm.land/log/v2"
 
+	"github.com/dlvhdr/gh-dash/v4/internal/ai"
 	"github.com/dlvhdr/gh-dash/v4/internal/config"
 	"github.com/dlvhdr/gh-dash/v4/internal/data"
+	"github.com/dlvhdr/gh-dash/v4/internal/notify"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/notificationrow"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/section"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/components/table"
@@ -166,6 +170,7 @@ type Model struct {
 	section.BaseModel
 	Notifications     []notificationrow.Data
 	SortOrder         SortOrder
+	NotifyOnNew       bool
 	lastSidebarOpen   bool
 	sessionMarkedRead map[string]bool // IDs of notifications marked as read this session (kept visible until manual refresh)
 	sessionMarkedDone map[string]bool // IDs of notifications marked as done this session (excluded until manual refresh)
@@ -202,6 +207,7 @@ func NewModel(
 	m.Notifications = []notificationrow.Data{}
 	m.sessionMarkedRead = make(map[string]bool)
 	m.sessionMarkedDone = make(map[string]bool)
+	m.NotifyOnNew = cfg.Notify
 
 	return m
 }
@@ -382,6 +388,7 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 
 	case SectionNotificationsFetchedMsg:
 		if m.LastFetchTaskId == msg.TaskId {
+			isFirstPage := m.PageInfo == nil
 			if m.PageInfo != nil {
 				// Append to existing notifications (pagination)
 				m.Notifications = append(m.Notifications, msg.Notifications...)
@@ -396,8 +403,16 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			m.UpdateLastUpdated(time.Now())
 			m.UpdateTotalItemsCount(m.TotalCount)
 
-			// Start background fetches for comment counts (only for new notifications)
-			fetchCmds := m.fetchCommentCountsForNotifications(msg.Notifications)
+			// Collect pending desktop notifications (first-page fetches only).
+			// AI-enriched notifications for PRs fire inside the enrichment goroutines below.
+			var pendingNotifs map[string]notificationrow.Data
+			if m.NotifyOnNew && isFirstPage {
+				pendingNotifs = collectPendingNotifications(msg.Notifications)
+			}
+
+			// Start background fetches for comment counts (only for new notifications).
+			// Passes pending map so PR goroutines can fire AI-enriched notifications.
+			fetchCmds := m.fetchCommentCountsForNotifications(msg.Notifications, pendingNotifs)
 			cmd = tea.Batch(fetchCmds...)
 		}
 
@@ -931,11 +946,146 @@ func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {
 	m.BaseModel.UpdateProgramContext(ctx)
 }
 
-// fetchCommentCountsForNotifications returns commands to fetch comment counts for the given notifications
-func (m *Model) fetchCommentCountsForNotifications(notifications []notificationrow.Data) []tea.Cmd {
+// collectPendingNotifications seeds the notified store on first launch and returns
+// a map of notification IDs that need desktop alerts (unread + not yet notified).
+// Caps at 5 per fetch. Returns nil on first-launch seed (no alerts should fire).
+func collectPendingNotifications(notifications []notificationrow.Data) map[string]notificationrow.Data {
+	store := data.GetNotifiedStore()
+
+	ids := make([]string, len(notifications))
+	updatedAts := make([]time.Time, len(notifications))
+	for i, n := range notifications {
+		ids[i] = n.GetId()
+		updatedAts[i] = n.GetUpdatedAt()
+	}
+
+	if store.SeedIfNeeded(ids, updatedAts) {
+		return nil
+	}
+
+	pending := make(map[string]notificationrow.Data)
+	count := 0
+	for _, n := range notifications {
+		if count >= 5 {
+			break
+		}
+		if !n.IsUnread() {
+			continue
+		}
+		if store.IsNotified(n.GetId(), n.GetUpdatedAt()) {
+			continue
+		}
+		// Only notify for high-signal reasons: direct review requests and CODEOWNERS team mentions.
+		// state_change (merge/close), author (activity on own PR), comment, assign, etc. are excluded.
+		// "new commits since your review" (2c) will be added separately once viewerLatestReview is available.
+		if !isHighSignalReason(n.GetReason()) {
+			continue
+		}
+		pending[n.GetId()] = n
+		count++
+	}
+	return pending
+}
+
+// isHighSignalReason returns true for notification reasons that warrant a desktop alert.
+// Currently: review_requested (direct ask) and team_mention (CODEOWNERS / team review request).
+func isHighSignalReason(reason string) bool {
+	return reason == data.ReasonReviewRequested || reason == data.ReasonTeamMention
+}
+
+// fireAINotifForPR fires an AI-enriched desktop notification for a pull request.
+// Falls back to stats-only format if AI is unavailable or times out.
+// Marks the notification as notified in the store.
+func fireAINotifForPR(ctx *context.ProgramContext, n notificationrow.Data, pr data.EnrichedPullRequestData) {
+	var badge, subtitle, message string
+	subtitle = fmt.Sprintf("PR #%d · +%d −%d · %d files", pr.Number, pr.Additions, pr.Deletions, pr.Files.TotalCount)
+
+	if ctx != nil && ctx.AIClient != nil && ctx.AINotifCache != nil {
+		key := ai.CacheKey{URL: pr.Url, UpdatedAt: pr.UpdatedAt}
+
+		var resp ai.NotificationSummaryResponse
+		found := false
+
+		if cached, ok := ctx.AINotifCache.Get(key); ok {
+			resp = cached
+			found = true
+		} else if ctx.AICache != nil {
+			if full, ok := ctx.AICache.Get(key); ok {
+				resp = ai.NotificationSummaryResponse{
+					Interest: full.Interest,
+					Summary:  truncateNotifSummary(full.Summary, 150),
+				}
+				found = true
+			}
+		}
+
+		if !found {
+			callCtx, cancel := gocontext.WithTimeout(gocontext.Background(), 5*time.Second)
+			defer cancel()
+			payload := ai.BuildEnrichedNotificationPromptPayload(pr)
+			raw, err := ctx.AIClient.GenerateSummary(callCtx, ai.Request{
+				Mode:    ai.NotificationSummary,
+				Payload: payload,
+			})
+			if err != nil {
+				log.Debug("AI notification summary failed", "err", err, "id", n.GetId())
+			} else if parsed, err := ai.ParseNotificationSummary(raw); err != nil {
+				log.Debug("AI notification summary parse failed", "err", err, "id", n.GetId())
+			} else {
+				ctx.AINotifCache.Set(key, parsed)
+				resp = parsed
+				found = true
+			}
+		}
+
+		if found && resp.Interest != "" {
+			badge = fmt.Sprintf("[%s]", resp.Interest)
+			message = pr.Title + "\n" + resp.Summary
+		}
+	}
+
+	var title string
+	if badge != "" {
+		title = fmt.Sprintf("gh-dash %s · %s", badge, n.GetRepoNameWithOwner())
+	} else {
+		title = "gh-dash — " + n.GetRepoNameWithOwner()
+	}
+	if message == "" {
+		message = pr.Title
+	}
+
+	notify.Send(notify.Notification{
+		Title:    title,
+		Subtitle: subtitle,
+		Message:  message,
+		Group:    "gh-dash",
+		OpenURL:  n.GetUrl(),
+	})
+	data.GetNotifiedStore().MarkNotified(n.GetId(), n.GetUpdatedAt())
+}
+
+// truncateNotifSummary truncates s to at most maxLen characters,
+// preferring to cut at a sentence boundary (". ") if one exists before maxLen.
+func truncateNotifSummary(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	cut := s[:maxLen]
+	if idx := strings.LastIndex(cut, ". "); idx > 0 {
+		return s[:idx+1]
+	}
+	return cut + "…"
+}
+
+// fetchCommentCountsForNotifications returns commands to fetch comment counts for the given notifications.
+// pendingNotifs is the set of notifications that need desktop alerts; PR entries fire AI-enriched
+// notifications after their data is fetched. Pass nil to skip all notification firing.
+func (m *Model) fetchCommentCountsForNotifications(notifications []notificationrow.Data, pendingNotifs map[string]notificationrow.Data) []tea.Cmd {
 	var cmds []tea.Cmd
 
 	log.Debug("fetchCommentCountsForNotifications called", "numNotifications", len(notifications))
+
+	ctx := m.Ctx // capture for goroutine closures
 
 	for _, notif := range notifications {
 		// Copy values for closure capture
@@ -964,6 +1114,7 @@ func (m *Model) fetchCommentCountsForNotifications(notifications []notificationr
 		case "PullRequest":
 			// Capture variables for closure
 			id, url, readAt, commentUrl := notifId, subjectUrl, lastReadAt, latestCommentUrl
+			pendingNotif, shouldNotify := pendingNotifs[id]
 			cmds = append(cmds, func() tea.Msg {
 				log.Debug("Fetching PR for comment count", "url", url)
 				pr, err := data.FetchPullRequest(url)
@@ -987,6 +1138,10 @@ func (m *Model) fetchCommentCountsForNotifications(notifications []notificationr
 					"actor",
 					actor,
 				)
+				// Fire AI-enriched desktop notification now that we have full PR data
+				if shouldNotify {
+					fireAINotifForPR(ctx, pendingNotif, pr)
+				}
 				return UpdateNotificationCommentsMsg{
 					Id:               id,
 					NewCommentsCount: count,
@@ -998,6 +1153,7 @@ func (m *Model) fetchCommentCountsForNotifications(notifications []notificationr
 		case "Issue":
 			// Capture variables for closure
 			id, url, readAt, commentUrl := notifId, subjectUrl, lastReadAt, latestCommentUrl
+			pendingNotif, shouldNotify := pendingNotifs[id]
 			cmds = append(cmds, func() tea.Msg {
 				log.Debug("Fetching Issue for comment count", "url", url)
 				issue, err := data.FetchIssue(url)
@@ -1021,6 +1177,23 @@ func (m *Model) fetchCommentCountsForNotifications(notifications []notificationr
 					"actor",
 					actor,
 				)
+				// Fire basic desktop notification for issues (no AI enrichment)
+				if shouldNotify {
+					activity := notificationrow.GenerateActivityDescription(
+						pendingNotif.GetReason(), pendingNotif.GetSubjectType(), actor,
+					)
+					if activity == "" {
+						activity = pendingNotif.GetReason()
+					}
+					notify.Send(notify.Notification{
+						Title:    "gh-dash — " + pendingNotif.GetRepoNameWithOwner(),
+						Subtitle: activity,
+						Message:  pendingNotif.GetTitle(),
+						Group:    "gh-dash",
+						OpenURL:  pendingNotif.GetUrl(),
+					})
+					data.GetNotifiedStore().MarkNotified(id, pendingNotif.GetUpdatedAt())
+				}
 				return UpdateNotificationCommentsMsg{
 					Id:               id,
 					NewCommentsCount: count,

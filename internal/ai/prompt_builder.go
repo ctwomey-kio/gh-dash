@@ -135,6 +135,69 @@ type notificationPromptPayload struct {
 	Labels         []string       `json:"labels,omitempty"`
 }
 
+// BuildEnrichedNotificationPromptPayload serializes EnrichedPullRequestData into the JSON payload
+// for the notification summary LLM call. Used when full PR data is already available (e.g. from
+// the notification section's background enrichment fetch).
+func BuildEnrichedNotificationPromptPayload(pr data.EnrichedPullRequestData) string {
+	body := pr.Body
+	if len(body) > 1000 {
+		body = body[:1000]
+	}
+
+	files := make([]promptFile, 0, len(pr.Files.Nodes))
+	for _, f := range pr.Files.Nodes {
+		files = append(files, promptFile{
+			Path:      f.Path,
+			Additions: f.Additions,
+			Deletions: f.Deletions,
+		})
+	}
+
+	reviews := make([]promptReview, 0, len(pr.Reviews.Nodes))
+	for _, r := range pr.Reviews.Nodes {
+		b := r.Body
+		if len(b) > 200 {
+			b = b[:200]
+		}
+		reviews = append(reviews, promptReview{
+			Author: r.Author.Login,
+			State:  r.State,
+			Body:   b,
+		})
+	}
+
+	reviewers := make([]string, 0, len(pr.ReviewRequests.Nodes))
+	for _, req := range pr.ReviewRequests.Nodes {
+		if name := req.GetReviewerDisplayName(); name != "" {
+			reviewers = append(reviewers, name)
+		}
+	}
+
+	labels := make([]string, 0, len(pr.Labels.Nodes))
+	for _, l := range pr.Labels.Nodes {
+		labels = append(labels, l.Name)
+	}
+
+	payload := notificationPromptPayload{
+		Title:          pr.Title,
+		Body:           body,
+		Author:         pr.Author.Login,
+		State:          pr.State,
+		ReviewDecision: pr.ReviewDecision,
+		Additions:      pr.Additions,
+		Deletions:      pr.Deletions,
+		IsDraft:        pr.IsDraft,
+		TotalFiles:     pr.Files.TotalCount,
+		Files:          files,
+		Reviews:        reviews,
+		Reviewers:      reviewers,
+		Labels:         labels,
+	}
+
+	b, _ := json.Marshal(payload)
+	return string(b)
+}
+
 // BuildNotificationPromptPayload serializes basic PullRequestData into the JSON payload
 // for the notification summary LLM call. Uses only the fields available before enrichment.
 func BuildNotificationPromptPayload(pr *data.PullRequestData) string {
