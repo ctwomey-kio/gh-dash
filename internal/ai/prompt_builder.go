@@ -198,6 +198,51 @@ func BuildEnrichedNotificationPromptPayload(pr data.EnrichedPullRequestData) str
 	return string(b)
 }
 
+type addressedPromptPayload struct {
+	Title       string         `json:"title"`
+	Author      string         `json:"author"`
+	CommitCount int            `json:"newCommitCount"`
+	Commits     []promptCommit `json:"newCommits"`
+	Files       []promptFile   `json:"files,omitempty"`
+}
+
+// BuildAddressedPromptPayload serializes the commits pushed after the viewer's review into
+// the JSON payload for the AddressedSummary LLM call.
+func BuildAddressedPromptPayload(pr data.EnrichedPullRequestData, commitCount int) string {
+	commits := make([]promptCommit, 0, commitCount)
+	if pr.ViewerLatestReview != nil {
+		reviewedAt := pr.ViewerLatestReview.CreatedAt
+		if pr.ViewerLatestReview.SubmittedAt != nil {
+			reviewedAt = *pr.ViewerLatestReview.SubmittedAt
+		}
+		for _, node := range pr.AllCommits.Nodes {
+			if node.Commit.CommittedDate.After(reviewedAt) {
+				commits = append(commits, promptCommit{Message: node.Commit.MessageHeadline})
+			}
+		}
+	}
+
+	files := make([]promptFile, 0, len(pr.Files.Nodes))
+	for _, f := range pr.Files.Nodes {
+		files = append(files, promptFile{
+			Path:      f.Path,
+			Additions: f.Additions,
+			Deletions: f.Deletions,
+		})
+	}
+
+	payload := addressedPromptPayload{
+		Title:       pr.Title,
+		Author:      pr.Author.Login,
+		CommitCount: commitCount,
+		Commits:     commits,
+		Files:       files,
+	}
+
+	b, _ := json.Marshal(payload)
+	return string(b)
+}
+
 // BuildNotificationPromptPayload serializes basic PullRequestData into the JSON payload
 // for the notification summary LLM call. Uses only the fields available before enrichment.
 func BuildNotificationPromptPayload(pr *data.PullRequestData) string {

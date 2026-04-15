@@ -221,20 +221,34 @@ func (n *Notification) getReasonDescription() string {
 	}
 }
 
-// renderActivity shows the new comments count with icon
-// Returns 3 lines to match Title column for proper background highlighting
+// renderActivity shows new comments and/or commits-since-review with icons.
+// Returns 3 lines to match Title column for proper background highlighting.
 func (n *Notification) renderActivity() string {
-	if n.Data.NewCommentsCount <= 0 {
-		return "\n\n"
-	}
 	// Use raw ANSI foreground codes without reset to avoid breaking row background
-	// White foreground for count, green foreground for icon
 	white := "\x1b[97m" // Bright white
 	green := "\x1b[32m" // Green
-	return white + fmt.Sprintf(
-		"+%d ",
-		n.Data.NewCommentsCount,
-	) + green + constants.CommentsIcon + "\n\n"
+	yellow := "\x1b[33m" // Yellow/amber for "needs re-review"
+
+	line1 := ""
+	line2 := ""
+
+	if n.Data.NewCommentsCount > 0 {
+		line1 = white + fmt.Sprintf("+%d ", n.Data.NewCommentsCount) + green + constants.CommentsIcon
+	}
+
+	if n.Data.CommitsSinceReview > 0 {
+		commitLine := white + fmt.Sprintf("+%d ", n.Data.CommitsSinceReview) + yellow + constants.CommitIcon
+		if line1 == "" {
+			line1 = commitLine
+		} else {
+			line2 = commitLine
+		}
+	}
+
+	if line1 == "" {
+		return "\n\n"
+	}
+	return line1 + "\n" + line2 + "\n"
 }
 
 // renderUpdatedAt returns the time since last update
