@@ -50,9 +50,10 @@ type ProgramContext struct {
 	Styles              Styles
 
 	// AI features — initialized once config is loaded
-	AIClient    *ai.Client
-	AICache     *ai.SummaryCache
-	AINotifCache *ai.Cache[ai.NotificationSummaryResponse]
+	AIClient      *ai.Client
+	AICache       *ai.SummaryCache
+	AINotifCache  *ai.Cache[ai.NotificationSummaryResponse]
+	AIMergedCache *ai.Cache[ai.MergedPRSummaryResponse]
 }
 
 func (ctx *ProgramContext) GetViewSectionsConfig() []config.SectionConfig {

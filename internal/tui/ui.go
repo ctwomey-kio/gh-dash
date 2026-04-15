@@ -665,6 +665,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.ctx.AIClient = c
 				m.ctx.AICache = ai.NewSummaryCache(100)
 				m.ctx.AINotifCache = ai.NewCache[ai.NotificationSummaryResponse](100)
+				m.ctx.AIMergedCache = ai.NewCache[ai.MergedPRSummaryResponse](100)
 				log.Info("AI client initialized", "model", m.ctx.Config.AI.Model)
 			} else {
 				log.Error("AI client init failed — AI features disabled", "err", err)
@@ -681,11 +682,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tabs.SetCurrSectionId(1)
 		cmds = append(cmds, fetchSectionsCmds, m.tabs.Init(), fetchUser, fetchMyTeams,
 			m.doRefreshAtInterval(), m.doUpdateFooterAtInterval())
+		// Always fetch notifications in the background for desktop alerts,
+		// even when the active view is not NotificationsView.
+		if m.ctx.View != config.NotificationsView {
+			notifSections, notifCmd := notificationssection.FetchAllSections(m.ctx, m.notifications)
+			m.notifications = notifSections
+			cmds = append(cmds, notifCmd)
+		}
 
 	case intervalRefresh:
 		newSections, fetchSectionsCmds := m.fetchAllViewSections()
 		m.setCurrentViewSections(newSections)
 		cmds = append(cmds, fetchSectionsCmds, m.doRefreshAtInterval())
+		// Keep notification sections refreshed in the background regardless of active view.
+		if m.ctx.View != config.NotificationsView {
+			notifSections, notifCmd := notificationssection.FetchAllSections(m.ctx, m.notifications)
+			m.notifications = notifSections
+			cmds = append(cmds, notifCmd)
+		}
 
 	case userFetchedMsg:
 		m.ctx.User = msg.user

@@ -15,6 +15,14 @@ type PRSummaryResponse struct {
 	RiskNotes    *string  `json:"risk_notes"`
 }
 
+// MergedPRSummaryResponse is the structured output from the LLM for a merged PR.
+type MergedPRSummaryResponse struct {
+	WhatChanged string   `json:"what_changed"`
+	KeyFiles    []string `json:"key_files"`
+	Discussion  *string  `json:"discussion"`
+	RiskNotes   *string  `json:"risk_notes"`
+}
+
 // NotificationSummaryResponse is the structured output from the LLM for a notification body.
 type NotificationSummaryResponse struct {
 	Interest string `json:"interest"`
@@ -54,6 +62,16 @@ func ParseNotificationSummary(raw string) (NotificationSummaryResponse, error) {
 	var result NotificationSummaryResponse
 	if err := json.Unmarshal([]byte(s), &result); err != nil {
 		return NotificationSummaryResponse{}, ErrParseFailed
+	}
+	return result, nil
+}
+
+// ParseMergedPRSummary unmarshals the LLM's text response into MergedPRSummaryResponse.
+func ParseMergedPRSummary(raw string) (MergedPRSummaryResponse, error) {
+	s := cleanLLMJSON(raw)
+	var result MergedPRSummaryResponse
+	if err := json.Unmarshal([]byte(s), &result); err != nil {
+		return MergedPRSummaryResponse{}, ErrParseFailed
 	}
 	return result, nil
 }
