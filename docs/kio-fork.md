@@ -13,10 +13,10 @@ A personal fork of [dlvhdr/gh-dash](https://github.com/dlvhdr/gh-dash), a termin
 
 | Tool | Purpose | Install |
 |------|---------|---------|
-| Go 1.24+ | build from source | `brew install go` |
-| `gh` CLI | authenticated GitHub access | `brew install gh` then `gh auth login` |
+| `gh` CLI | install and run the extension | `brew install gh` then `gh auth login` |
 | `terminal-notifier` | desktop notifications (macOS) | `brew install terminal-notifier` |
 | `ANTHROPIC_API_KEY` | AI summaries | get one at console.anthropic.com and export in your shell profile |
+| Go 1.24+ | only needed for Option B (clone and build) | `brew install go` |
 
 ## Install
 
@@ -99,4 +99,4 @@ git rebase upstream/main
 | AI tab stays empty | Check `ANTHROPIC_API_KEY` is exported and `ai.enabled: true` is in config |
 | No desktop notifications | Run `which terminal-notifier`; if missing, `brew install terminal-notifier`. Also verify `notify: true` is set on the notification section |
 | Notifications fire on every launch | The dedup store lives at `~/.local/share/gh-dash/notified.json`; delete it to reset |
-| Build fails with `go: module not found` | Run `go mod tidy` — the Anthropic SDK may need a fresh download |
+| Build fails with `go: module not found` | (clone only) Run `go mod tidy` — the Anthropic SDK may need a fresh download |
