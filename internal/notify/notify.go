@@ -2,6 +2,7 @@ package notify
 
 import (
 	"os/exec"
+	"strings"
 
 	"charm.land/log/v2"
 )
@@ -31,10 +32,14 @@ func sendWith(
 	run func(string, ...string) error,
 ) {
 	if tn, err := lookPath("terminal-notifier"); err == nil {
+		group := n.Group
+		if group == "" {
+			group = "gh-dash"
+		}
 		args := []string{
 			"-title", n.Title,
 			"-message", n.Message,
-			"-group", "gh-dash",
+			"-group", group,
 		}
 		if n.Subtitle != "" {
 			args = append(args, "-subtitle", n.Subtitle)
@@ -60,17 +65,14 @@ func sendWith(
 	}
 }
 
-// quote wraps s in double quotes and escapes internal double quotes for AppleScript.
+// quote wraps s in a valid AppleScript string literal. Backslashes and double
+// quotes are escaped; newlines become AppleScript linefeed concatenation since
+// literal newlines break the string literal boundary.
 func quote(s string) string {
-	out := make([]byte, 0, len(s)+2)
-	out = append(out, '"')
-	for i := 0; i < len(s); i++ {
-		if s[i] == '"' {
-			out = append(out, '\\', '"')
-		} else {
-			out = append(out, s[i])
-		}
-	}
-	out = append(out, '"')
-	return string(out)
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	s = strings.ReplaceAll(s, "\r\n", `" & linefeed & "`)
+	s = strings.ReplaceAll(s, "\n", `" & linefeed & "`)
+	s = strings.ReplaceAll(s, "\r", `" & linefeed & "`)
+	return `"` + s + `"`
 }

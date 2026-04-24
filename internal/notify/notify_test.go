@@ -29,6 +29,7 @@ func TestSendWithTerminalNotifier(t *testing.T) {
 		Title:    "gh-dash",
 		Subtitle: "PR #42",
 		Message:  "review requested",
+		Group:    "notif-id-123",
 		OpenURL:  "https://github.com/org/repo/pull/42",
 	}
 	sendWith(
@@ -44,6 +45,19 @@ func TestSendWithTerminalNotifier(t *testing.T) {
 	require.Contains(t, calledArgs, "PR #42")
 	require.Contains(t, calledArgs, "-open")
 	require.Contains(t, calledArgs, "https://github.com/org/repo/pull/42")
+	require.Contains(t, calledArgs, "-group")
+	require.Contains(t, calledArgs, "notif-id-123")
+}
+
+func TestSendWithTerminalNotifierFallsBackToDefaultGroup(t *testing.T) {
+	var calledArgs []string
+	run := func(_ string, args ...string) error { calledArgs = args; return nil }
+
+	n := Notification{Title: "gh-dash", Message: "test"} // no Group set
+	sendWith(n, fakeLookPath(map[string]string{"terminal-notifier": "/usr/local/bin/terminal-notifier"}), run)
+
+	require.Contains(t, calledArgs, "-group")
+	require.Contains(t, calledArgs, "gh-dash")
 }
 
 func TestSendWithOsascriptFallback(t *testing.T) {
@@ -94,4 +108,7 @@ func TestSendWithNoBackendAvailable(t *testing.T) {
 func TestQuote(t *testing.T) {
 	require.Equal(t, `"hello"`, quote("hello"))
 	require.Equal(t, `"say \"hi\""`, quote(`say "hi"`))
+	require.Equal(t, `"back\\slash"`, quote(`back\slash`))
+	require.Equal(t, `"line1" & linefeed & "line2"`, quote("line1\nline2"))
+	require.Equal(t, `"line1" & linefeed & "line2"`, quote("line1\r\nline2"))
 }

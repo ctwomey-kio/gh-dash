@@ -1119,7 +1119,7 @@ func fireAINotifForPR(
 		Title:    title,
 		Subtitle: subtitle,
 		Message:  message,
-		Group:    "gh-dash",
+		Group:    n.GetId(),
 		OpenURL:  n.GetUrl(),
 	})
 	data.GetNotifiedStore().MarkNotified(n.GetId(), n.GetUpdatedAt())
@@ -1173,7 +1173,7 @@ func fireAddressedNotification(
 		Title:    title,
 		Subtitle: subtitle,
 		Message:  message,
-		Group:    "gh-dash",
+		Group:    n.GetId(),
 		OpenURL:  n.GetUrl(),
 	})
 }
@@ -1328,7 +1328,7 @@ func (m *Model) fetchCommentCountsForNotifications(
 						Title:    pendingNotif.GetRepoNameWithOwner(),
 						Subtitle: activity,
 						Message:  pendingNotif.GetTitle(),
-						Group:    "gh-dash",
+						Group:    pendingNotif.GetId(),
 						OpenURL:  pendingNotif.GetUrl(),
 					})
 					data.GetNotifiedStore().MarkNotified(id, pendingNotif.GetUpdatedAt())
