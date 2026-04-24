@@ -19,7 +19,8 @@ prSections:
 issuesSections: []
 
 # Desktop notifications fire from notificationsSections with notify: true.
-# Only review_requested and team_mention reasons trigger alerts.
+# Only review_requested (direct ask) and team_mention (CODEOWNERS) trigger alerts.
+# All other reasons (comment, state_change, assign, etc.) are excluded by the dispatcher.
 notificationsSections:
   - title: "Review Requested"
     filters: "reason:review-requested"
@@ -46,4 +47,4 @@ showAuthorIcons: true
 
 ai:
   enabled: true
-  model: claude-haiku-4-5-20251001   # optional — this is the default
+  model: claude-haiku-4-5-20251001   # optional — see Anthropic docs for valid model IDs
