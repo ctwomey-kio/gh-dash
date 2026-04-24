@@ -46,6 +46,7 @@ type Model struct {
 	summaryViewMore bool
 
 	aiSummary         *ai.PRSummaryResponse
+	aiMergedSummary   *ai.MergedPRSummaryResponse
 	aiSummaryLoading  bool
 	aiSummaryError    error
 	aiSummaryDuration time.Duration
@@ -56,12 +57,14 @@ type Model struct {
 var tabs = []string{"󱹺 AI Summary", " Overview", " Activity", " Commits", " Checks", " Files Changed"}
 
 // AISummaryMsg carries the final result of an AI summary fetch (streaming or cache hit).
+// For merged PRs, MergedData is set instead of Data.
 type AISummaryMsg struct {
 	PRURL             string
 	UpdatedAt         time.Time
 	ViewerReviewState string
 	Duration          time.Duration
 	Data              *ai.PRSummaryResponse
+	MergedData        *ai.MergedPRSummaryResponse
 	Err               error
 }
 
@@ -619,6 +622,7 @@ func (m *Model) SetRow(d *prrow.Data) {
 		m.aiStreamCancel = nil
 		m.aiStreamAccum = ""
 		m.aiSummary = nil
+		m.aiMergedSummary = nil
 		m.aiSummaryLoading = false
 		m.aiSummaryError = nil
 		m.aiSummaryDuration = 0
@@ -884,6 +888,11 @@ func (m *Model) FetchAISummary() tea.Cmd {
 		return nil
 	}
 
+	// Merged PRs use a different prompt and cache.
+	if m.pr.Data.Enriched.State == "MERGED" {
+		return m.fetchMergedAISummary()
+	}
+
 	prURL := m.pr.Data.Primary.Url
 	updatedAt := m.pr.Data.Primary.UpdatedAt
 
@@ -949,6 +958,70 @@ func (m *Model) FetchAISummary() tea.Cmd {
 	return reader.Next()
 }
 
+// fetchMergedAISummary is the merged-PR path for FetchAISummary.
+// Uses a different system prompt and a separate cache (AIMergedCache).
+func (m *Model) fetchMergedAISummary() tea.Cmd {
+	prURL := m.pr.Data.Primary.Url
+	updatedAt := m.pr.Data.Primary.UpdatedAt
+
+	cacheKey := ai.CacheKey{URL: prURL, UpdatedAt: updatedAt}
+	if m.ctx.AIMergedCache != nil {
+		if cached, ok := m.ctx.AIMergedCache.Get(cacheKey); ok {
+			c := cached
+			m.aiSummaryLoading = true
+			return func() tea.Msg {
+				return AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, MergedData: &c}
+			}
+		}
+	}
+
+	m.aiSummaryLoading = true
+	m.aiSummaryError = nil
+	m.aiMergedSummary = nil
+	m.aiStreamAccum = ""
+	log.Debug("fetchMergedAISummary: starting stream", "url", prURL)
+
+	payload := ai.BuildPRPromptPayload(m.pr.Data.Primary, m.pr.Data.Enriched)
+	client := m.ctx.AIClient
+
+	textCh := make(chan string, 64)
+	doneCh := make(chan AISummaryMsg, 1)
+
+	ctx, cancel := stdctx.WithTimeout(stdctx.Background(), 30*time.Second)
+	m.aiStreamCancel = cancel
+
+	go func() {
+		defer close(textCh)
+		start := time.Now()
+		raw, err := client.StreamSummary(ctx, ai.Request{Mode: ai.MergedPRSummary, Payload: payload}, textCh)
+		elapsed := time.Since(start)
+		cancel()
+
+		if err != nil && err != stdctx.Canceled {
+			log.Error("fetchMergedAISummary: stream error", "err", err, "elapsed", elapsed)
+			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, Err: err}
+			return
+		}
+		if err == stdctx.Canceled {
+			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, Err: err}
+			return
+		}
+
+		parsed, parseErr := ai.ParseMergedPRSummary(raw)
+		if parseErr != nil {
+			log.Error("fetchMergedAISummary: parse error", "err", parseErr, "elapsed", elapsed)
+			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, Err: parseErr}
+			return
+		}
+
+		log.Debug("fetchMergedAISummary: stream complete", "url", prURL, "elapsed", elapsed)
+		doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, MergedData: &parsed}
+	}()
+
+	reader := aiStreamReader{prURL: prURL, updatedAt: updatedAt, textCh: textCh, doneCh: doneCh}
+	return reader.Next()
+}
+
 // AppendAIStreamChunk appends a streamed text chunk to the accumulator shown while loading.
 func (m *Model) AppendAIStreamChunk(chunk string) {
 	m.aiStreamAccum += chunk
@@ -967,9 +1040,14 @@ func (m *Model) SetAISummary(msg AISummaryMsg) {
 	cacheKey := ai.CacheKey{URL: msg.PRURL, UpdatedAt: msg.UpdatedAt, ViewerReviewState: msg.ViewerReviewState}
 
 	// Always store successful results in cache — even for PRs the user has navigated away from.
-	if msg.Err == nil && msg.Data != nil && m.ctx != nil && m.ctx.AICache != nil {
-		log.Debug("SetAISummary: caching result", "url", msg.PRURL, "isCurrent", isCurrentPR)
-		m.ctx.AICache.Set(cacheKey, *msg.Data)
+	if msg.Err == nil && m.ctx != nil {
+		if msg.MergedData != nil && m.ctx.AIMergedCache != nil {
+			log.Debug("SetAISummary: caching merged result", "url", msg.PRURL, "isCurrent", isCurrentPR)
+			m.ctx.AIMergedCache.Set(cacheKey, *msg.MergedData)
+		} else if msg.Data != nil && m.ctx.AICache != nil {
+			log.Debug("SetAISummary: caching result", "url", msg.PRURL, "isCurrent", isCurrentPR)
+			m.ctx.AICache.Set(cacheKey, *msg.Data)
+		}
 	}
 
 	if !isCurrentPR {
@@ -984,7 +1062,11 @@ func (m *Model) SetAISummary(msg AISummaryMsg) {
 		return
 	}
 	log.Debug("SetAISummary: displayed summary", "url", msg.PRURL, "duration", msg.Duration)
-	m.aiSummary = msg.Data
+	if msg.MergedData != nil {
+		m.aiMergedSummary = msg.MergedData
+	} else {
+		m.aiSummary = msg.Data
+	}
 	m.aiSummaryDuration = msg.Duration
 }
 

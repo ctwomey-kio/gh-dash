@@ -7,6 +7,7 @@ const (
 	PRSummary PromptMode = iota
 	NotificationSummary
 	AddressedSummary
+	MergedPRSummary
 )
 
 // SystemPrompt returns the system prompt for a given PromptMode.
@@ -18,6 +19,8 @@ func SystemPrompt(mode PromptMode) string {
 		return notificationSummarySystemPrompt
 	case AddressedSummary:
 		return addressedSummarySystemPrompt
+	case MergedPRSummary:
+		return mergedPRSummarySystemPrompt
 	default:
 		return prSummarySystemPrompt
 	}
@@ -54,6 +57,17 @@ Interest level rules:
 - HIGH: Commits appear to directly address review feedback or fix requested changes; significant architectural changes
 - MED: Partial fixes, some feedback addressed, additional features added
 - LOW: Minor fixups, formatting, CI fixes, or trivial changes
+
+Output ONLY valid JSON. No markdown, no code fences, no explanation before or after.`
+
+const mergedPRSummarySystemPrompt = `You are a changelog assistant embedded in a terminal dashboard. This PR has already been merged. Do not discuss review status, interest level, or whether someone should review it.
+
+Given PR metadata, produce a JSON object with exactly these fields:
+
+- "what_changed": 2-4 sentences in changelog style — what problem this solved, the implementation approach, and which subsystems were affected. Write as if summarizing a shipped change for a downstream team.
+- "key_files": array of 3-5 most significant changed files (prefer logic, schema, and API files over tests, lockfiles, and generated files)
+- "discussion": string or null — who reviewed it (names), whether there were inline comments or debate, and any notable design decisions or trade-offs that came out of the review. If there were no comments and approval was routine, say so briefly (e.g. "Approved by @alice with no comments"). Do not mention dismissal of stale reviews — that is an automatic housekeeping event, not a meaningful discussion signal. null only if reviewer data is entirely absent.
+- "risk_notes": string or null — breaking changes, migration steps, API contract changes, or anything downstream teams need to act on. null if none apply.
 
 Output ONLY valid JSON. No markdown, no code fences, no explanation before or after.`
 

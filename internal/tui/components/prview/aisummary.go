@@ -19,6 +19,10 @@ var (
 	reReviewStatus = regexp.MustCompile(`"review_status"\s*:\s*"((?:[^"\\]|\\.)*)"`)
 	reRiskNotes    = regexp.MustCompile(`"risk_notes"\s*:\s*"((?:[^"\\]|\\.)*)"`)
 	reArrayItem    = regexp.MustCompile(`"((?:[^"\\]|\\.)*)"`)
+
+	// Merged PR summary regexes
+	reWhatChanged = regexp.MustCompile(`"what_changed"\s*:\s*"((?:[^"\\]|\\.)*)"`)
+	reDiscussion  = regexp.MustCompile(`"discussion"\s*:\s*"((?:[^"\\]|\\.)*)"`)
 )
 
 func formatDuration(d time.Duration) string {
@@ -91,6 +95,25 @@ func parsePartialAccum(accum string) ai.PRSummaryResponse {
 	return r
 }
 
+// parsePartialMergedAccum extracts whatever complete fields are present in a partially-streamed
+// merged PR JSON response. Incomplete fields are left as zero values.
+func parsePartialMergedAccum(accum string) ai.MergedPRSummaryResponse {
+	s := strings.TrimPrefix(accum, "```json")
+	s = strings.TrimPrefix(s, "```")
+	s = strings.TrimSpace(s)
+
+	r := ai.MergedPRSummaryResponse{}
+	r.WhatChanged = extractStringField(s, reWhatChanged)
+	r.KeyFiles = extractPartialStringArray(s, "key_files")
+	if d := extractStringField(s, reDiscussion); d != "" {
+		r.Discussion = &d
+	}
+	if rn := extractStringField(s, reRiskNotes); rn != "" {
+		r.RiskNotes = &rn
+	}
+	return r
+}
+
 func (m *Model) renderAISummary() string {
 	w := m.getIndentedContentWidth()
 	faint := lipgloss.NewStyle().Foreground(m.ctx.Theme.FaintText)
@@ -111,8 +134,14 @@ func (m *Model) renderAISummary() string {
 		)
 	}
 
+	isMerged := m.pr != nil && m.pr.Data.Primary.State == "MERGED"
+
 	if m.aiSummaryLoading {
 		if m.aiStreamAccum != "" {
+			if isMerged {
+				partial := parsePartialMergedAccum(m.aiStreamAccum)
+				return m.renderMergedSummaryFields(partial, true, 0, faint, heading, body)
+			}
 			partial := parsePartialAccum(m.aiStreamAccum)
 			return m.renderSummaryFields(partial, true, 0, faint, heading, body)
 		}
@@ -122,6 +151,13 @@ func (m *Model) renderAISummary() string {
 	if m.aiSummaryError != nil {
 		errStyle := lipgloss.NewStyle().Foreground(m.ctx.Theme.ErrorText)
 		return errStyle.Render(fmt.Sprintf("Error: %s", m.aiSummaryError.Error()))
+	}
+
+	if isMerged {
+		if m.aiMergedSummary == nil {
+			return faint.Render("No summary available.")
+		}
+		return m.renderMergedSummaryFields(*m.aiMergedSummary, false, m.aiSummaryDuration, faint, heading, body)
 	}
 
 	if m.aiSummary == nil {
@@ -183,6 +219,78 @@ func (m *Model) renderSummaryFields(s ai.PRSummaryResponse, isPartial bool, dura
 		out.WriteString(heading.Render(" Review Status"))
 		out.WriteString("\n")
 		out.WriteString(body.Foreground(m.ctx.Theme.SecondaryText).Render(s.ReviewStatus))
+		out.WriteString("\n")
+	}
+
+	// Risk notes (optional)
+	if s.RiskNotes != nil && *s.RiskNotes != "" {
+		out.WriteString("\n")
+		warnStyle := lipgloss.NewStyle().Foreground(m.ctx.Theme.WarningText).Bold(true)
+		out.WriteString(warnStyle.Render("⚠ Risk Notes"))
+		out.WriteString("\n")
+		out.WriteString(body.Foreground(m.ctx.Theme.SecondaryText).Render(*s.RiskNotes))
+	}
+
+	// Cursor while generating
+	if isPartial {
+		if out.Len() == 0 {
+			return faint.Render("Generating AI summary... ▌")
+		}
+		out.WriteString("\n")
+		out.WriteString(faint.Render("▌"))
+	}
+
+	if out.Len() == 0 {
+		return faint.Render("No summary available.")
+	}
+
+	return out.String()
+}
+
+// renderMergedSummaryFields renders a MergedPRSummaryResponse for merged PRs.
+// isPartial=true adds a ▌ cursor; missing fields are silently omitted.
+func (m *Model) renderMergedSummaryFields(s ai.MergedPRSummaryResponse, isPartial bool, duration time.Duration, faint, heading, body lipgloss.Style) string {
+	var out strings.Builder
+
+	// MERGED badge + duration
+	badgeStyle := lipgloss.NewStyle().Bold(true).Padding(0, 1).
+		Background(m.ctx.Styles.Colors.MergedPR).
+		Foreground(lipgloss.Color("#ffffff"))
+	durationStr := ""
+	if !isPartial && duration > 0 {
+		durationStr = " · " + formatDuration(duration)
+	}
+	catStyle := lipgloss.NewStyle().Foreground(m.ctx.Theme.FaintText).MarginLeft(1)
+	out.WriteString(lipgloss.JoinHorizontal(lipgloss.Center,
+		badgeStyle.Render("MERGED"),
+		catStyle.Render(durationStr),
+	))
+	out.WriteString("\n\n")
+
+	// What Changed
+	if s.WhatChanged != "" {
+		out.WriteString(heading.Render(" What Changed"))
+		out.WriteString("\n")
+		out.WriteString(body.Foreground(m.ctx.Theme.SecondaryText).Render(s.WhatChanged))
+		out.WriteString("\n\n")
+	}
+
+	// Key files
+	if len(s.KeyFiles) > 0 {
+		out.WriteString(heading.Render(" Key Files"))
+		out.WriteString("\n")
+		for _, f := range s.KeyFiles {
+			out.WriteString(faint.Render("  " + f))
+			out.WriteString("\n")
+		}
+		out.WriteString("\n")
+	}
+
+	// Discussion (optional)
+	if s.Discussion != nil && *s.Discussion != "" {
+		out.WriteString(heading.Render(" Discussion"))
+		out.WriteString("\n")
+		out.WriteString(body.Foreground(m.ctx.Theme.SecondaryText).Render(*s.Discussion))
 		out.WriteString("\n")
 	}
 
