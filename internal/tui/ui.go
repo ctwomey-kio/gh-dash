@@ -18,6 +18,7 @@ import (
 	"github.com/cli/go-gh/v2/pkg/browser"
 	zone "github.com/lrstanley/bubblezone/v2"
 
+	"github.com/dlvhdr/gh-dash/v4/internal/ai"
 	"github.com/dlvhdr/gh-dash/v4/internal/config"
 	"github.com/dlvhdr/gh-dash/v4/internal/data"
 	"github.com/dlvhdr/gh-dash/v4/internal/git"
@@ -667,6 +668,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.taskSpinner.Style = lipgloss.NewStyle().
 			Background(m.ctx.Theme.SelectedBackground)
 
+		if m.ctx.Config.AI.Enabled {
+			if c, err := ai.NewClient(m.ctx.Config.AI.Model); err == nil {
+				m.ctx.AIClient = c
+				m.ctx.AICache = ai.NewSummaryCache(100)
+				m.ctx.AINotifCache = ai.NewCache[ai.NotificationSummaryResponse](100)
+			}
+		}
+
 		m.ctx.View = m.ctx.Config.Defaults.View
 		m.currSectionId = m.getCurrentViewDefaultSection()
 		m.sidebar.IsOpen = msg.Config.Defaults.Preview.Open
@@ -675,7 +684,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		newSections, fetchSectionsCmds := m.fetchAllViewSections()
 		m.setCurrentViewSections(newSections)
 		m.tabs.SetCurrSectionId(1)
-		cmds = append(cmds, fetchSectionsCmds, m.tabs.Init(), fetchUser,
+		cmds = append(cmds, fetchSectionsCmds, m.tabs.Init(), fetchUser, fetchMyTeams,
 			m.doRefreshAtInterval(), m.doUpdateFooterAtInterval())
 
 	case intervalRefresh:
@@ -685,6 +694,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case userFetchedMsg:
 		m.ctx.User = msg.user
+
+	case myTeamsFetchedMsg:
+		m.ctx.MyTeamSlugs = msg.slugs
 
 	case constants.TaskFinishedMsg:
 		task, ok := m.tasks[msg.TaskId]
@@ -713,14 +725,38 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case prview.EnrichedPrMsg:
+		log.Debug("EnrichedPrMsg received", "id", msg.Id, "err", msg.Err)
 		if msg.Err == nil {
 			m.prView.SetEnrichedPR(msg.Data)
-			m.prs[msg.Id].(*prssection.Model).EnrichPR(msg.Data)
+			if section, ok := m.prs[msg.Id].(*prssection.Model); ok {
+				section.EnrichPR(msg.Data)
+			} else {
+				log.Debug("EnrichedPrMsg: prs[id] is not *prssection.Model", "id", msg.Id, "len_prs", len(m.prs))
+			}
 			syncCmd := m.syncSidebar()
 			cmds = append(cmds, syncCmd)
+			log.Debug("EnrichedPrMsg: calling FetchAISummary")
+			if aiCmd := m.prView.FetchAISummary(); aiCmd != nil {
+				log.Debug("EnrichedPrMsg: FetchAISummary returned a cmd")
+				m.sidebar.SetContent(m.prView.View())
+				cmds = append(cmds, aiCmd)
+			} else {
+				log.Debug("EnrichedPrMsg: FetchAISummary returned nil")
+			}
 		} else {
 			log.Error("failed enriching pr", "err", msg.Err)
 		}
+
+	case prview.AISummaryChunkMsg:
+		if m.prView.IsCurrentPR(msg.PRURL) {
+			m.prView.AppendAIStreamChunk(msg.Chunk)
+			m.sidebar.SetContent(m.prView.View())
+		}
+		cmds = append(cmds, msg.Next())
+
+	case prview.AISummaryMsg:
+		m.prView.SetAISummary(msg)
+		cmds = append(cmds, m.syncSidebar())
 
 	case notificationPRFetchedMsg:
 		if msg.Err == nil {
@@ -1009,10 +1045,14 @@ func (m *Model) onViewedRowChanged() tea.Cmd {
 	m.prView.GoToFirstTab()
 	sidebarCmd := m.syncSidebar()
 	enrichCmd := m.prView.EnrichCurrRow()
+	aiCmd := m.prView.FetchAISummary()
+	if aiCmd != nil {
+		m.sidebar.SetContent(m.prView.View())
+	}
 	m.sidebar.ScrollToTop()
 	m.notificationView.ResetSubject()
 	keys.SetNotificationSubject(keys.NotificationSubjectNone)
-	return tea.Batch(sidebarCmd, enrichCmd)
+	return tea.Batch(sidebarCmd, enrichCmd, aiCmd)
 }
 
 func (m *Model) onWindowSizeChanged(msg tea.WindowSizeMsg) {
@@ -1759,14 +1799,23 @@ type userFetchedMsg struct {
 func fetchUser() tea.Msg {
 	user, err := data.CurrentLoginName()
 	if err != nil {
-		return constants.ErrMsg{
-			Err: err,
-		}
+		return constants.ErrMsg{Err: err}
 	}
+	return userFetchedMsg{user: user}
+}
 
-	return userFetchedMsg{
-		user: user,
+type myTeamsFetchedMsg struct {
+	slugs []string
+}
+
+func fetchMyTeams() tea.Msg {
+	slugs, err := data.FetchMyTeamSlugs()
+	if err != nil {
+		log.Error("failed to fetch team memberships", "err", err)
+		return myTeamsFetchedMsg{slugs: nil}
 	}
+	log.Debug("fetched team memberships", "teams", slugs)
+	return myTeamsFetchedMsg{slugs: slugs}
 }
 
 type intervalRefresh time.Time

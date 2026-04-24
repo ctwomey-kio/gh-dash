@@ -135,6 +135,7 @@ func PRFullHelp() []key.Binding {
 		PRKeys.ApproveWorkflows,
 		PRKeys.ToggleSmartFiltering,
 		PRKeys.ViewIssues,
+		PRKeys.ToggleMerged,
 	}
 }
 
