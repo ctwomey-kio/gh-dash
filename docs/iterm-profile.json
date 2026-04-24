@@ -1,0 +1,11 @@
+{
+  "Profiles": [
+    {
+      "Name": "gh-dash",
+      "Guid": "gh-dash-kio-fork",
+      "Custom Command": "Yes",
+      "Command": "gh dash",
+      "Initial Text": ""
+    }
+  ]
+}

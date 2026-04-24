@@ -140,6 +140,19 @@ func TestIsTextInputBoxFocusedWhenUnassigning(t *testing.T) {
 	)
 }
 
+func TestGoToFirstTab(t *testing.T) {
+	m := newTestModelForAction(t)
+	m.carousel.MoveRight()
+	m.GoToFirstTab()
+	require.Equal(t, tabs[0], m.SelectedTab(), "GoToFirstTab should land on AI Summary")
+}
+
+func TestGoToActivityTab(t *testing.T) {
+	m := newTestModelForAction(t)
+	m.GoToActivityTab()
+	require.Equal(t, tabs[2], m.SelectedTab(), "GoToActivityTab should land on Activity, not Overview")
+}
+
 func TestUpdateHandlesSidebarTabNavigation(t *testing.T) {
 	t.Run("prev sidebar tab", func(t *testing.T) {
 		m := newTestModelForAction(t)

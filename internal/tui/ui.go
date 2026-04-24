@@ -797,16 +797,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.prView.SetRow(m.notificationView.GetSubjectPR())
 			m.prView.SetWidth(width)
 			m.prView.SetEnrichedPR(msg.PR)
-			// Switch to Activity tab and scroll to bottom if there's a latest comment
-			// (indicates there's new activity to show)
-			if msg.LatestCommentUrl != "" {
-				m.prView.GoToActivityTab()
-				m.sidebar.SetContent(m.prView.View())
-				m.sidebar.ScrollToBottom()
-			} else {
-				m.prView.GoToFirstTab()
-				m.sidebar.SetContent(m.prView.View())
-			}
+			m.prView.GoToFirstTab()
+			m.sidebar.SetContent(m.prView.View())
 			if aiCmd := m.prView.FetchAISummary(); aiCmd != nil {
 				m.sidebar.SetContent(m.prView.View())
 				cmds = append(cmds, aiCmd)

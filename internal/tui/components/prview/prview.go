@@ -824,7 +824,7 @@ func (m *Model) GoToFirstTab() {
 }
 
 func (m *Model) GoToActivityTab() {
-	m.carousel.SetCursor(1) // Activity is the second tab (index 1)
+	m.carousel.SetCursor(2) // Activity is index 2; index 0 is AI Summary (added in fork)
 }
 
 func (m Model) SelectedTab() string {

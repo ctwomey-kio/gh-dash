@@ -44,23 +44,37 @@ The binary lands in `$(go env GOPATH)/bin/gh-dash`.
 
 ## Config
 
-Place your config at `~/.config/gh-dash/config.yml`. A minimal config that enables AI and notifications:
+Place your config at `~/.config/gh-dash/config.yml`. A starter config that enables all fork features is at `docs/config-template.yml` in this repo. The key additions vs. a vanilla gh-dash config:
 
 ```yaml
-# yaml-language-server: $schema=https://gh-dash.dev/schema.json
-
+# Enable AI summaries (requires ANTHROPIC_API_KEY)
 ai:
   enabled: true
   model: claude-haiku-4-5-20251001   # optional — this is the default
 
+# notify: true fires desktop notifications for PRs in that section
 prSections:
-  - title: Needs my review
-    filters: is:open review-requested:@me sort:updated-desc
+  - title: "Direct Review"
+    filters: "is:open user-review-requested:@me sort:updated-desc"
+    notify: true
+  - title: "Team Review"
+    filters: "is:open review-requested:@me -user-review-requested:@me sort:updated-desc"
+    notify: true
+    layout:
+      requestedTeams:   # shows the requested-teams column for this section
+        hidden: false
+        width: 12
 
-notificationsSections:
-  - title: Inbox
-    filters: is:unread
-    notify: true   # enables desktop notifications for this section
+# Alternatively, drive notifications from GitHub's notification queue
+# (set notify: true on the sections you want alerts from)
+# notificationsSections:
+#   - title: "Review Requested"
+#     filters: "reason:review-requested"
+#     notify: true
+
+# Keeps already-reviewed PRs visible — useful with the AI summary tab
+smartFilteringAtLaunch: false
+showAuthorIcons: true
 ```
 
 The full config schema lives in the [upstream docs](https://dlvhdr.github.io/gh-dash/configuration/).
@@ -74,6 +88,10 @@ gh dash
 # via clone
 gh-dash
 ```
+
+## Desktop notifications
+
+Notifications fire while `gh dash` is open. To receive them from login, configure a terminal profile that runs `gh dash` as its startup command and set that profile to launch on login.
 
 Logs are written to `./debug.log` when you launch with `DEBUG=1` set in your environment.
 
