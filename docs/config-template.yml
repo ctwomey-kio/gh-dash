@@ -2,13 +2,11 @@ prSections:
   - title: "Direct Review"
     filters: "is:open user-review-requested:@me sort:updated-desc"
     limit: 25
-    notify: true
   - title: "Team Review"
     filters: "is:open review-requested:@me -user-review-requested:@me sort:updated-desc"
     limit: 25
-    notify: true
     layout:
-      requestedTeams:
+      requestedTeams:   # shows the requested-teams column for this section
         hidden: false
         width: 12
   - title: "My PRs"
@@ -20,15 +18,14 @@ prSections:
 
 issuesSections: []
 
-# Alternatively, drive notifications from GitHub's notification queue instead of
-# (or in addition to) prSections above. Uncomment and add notify: true to the
-# sections you want alerts from.
-# notificationsSections:
-#   - title: "Review Requested"
-#     filters: "reason:review-requested"
-#     notify: true
-#   - title: "Participating"
-#     filters: "reason:participating"
+# Desktop notifications fire from notificationsSections with notify: true.
+# Only review_requested and team_mention reasons trigger alerts.
+notificationsSections:
+  - title: "Review Requested"
+    filters: "reason:review-requested"
+    notify: true
+  - title: "Participating"
+    filters: "reason:participating"
 
 defaults:
   view: prs
@@ -40,7 +37,7 @@ defaults:
   layout:
     prs:
       requestedTeams:
-        hidden: true   # override per-section above; shown in Team Review only
+        hidden: true   # shown per-section above in Team Review only
 
 # Smart filtering hides PRs you've already reviewed from review sections.
 # Disabled here so the AI summary tab remains useful for already-reviewed PRs.

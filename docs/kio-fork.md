@@ -52,25 +52,24 @@ ai:
   enabled: true
   model: claude-haiku-4-5-20251001   # optional — this is the default
 
-# notify: true fires desktop notifications for PRs in that section
 prSections:
   - title: "Direct Review"
     filters: "is:open user-review-requested:@me sort:updated-desc"
-    notify: true
   - title: "Team Review"
     filters: "is:open review-requested:@me -user-review-requested:@me sort:updated-desc"
-    notify: true
     layout:
       requestedTeams:   # shows the requested-teams column for this section
         hidden: false
         width: 12
 
-# Alternatively, drive notifications from GitHub's notification queue
-# (set notify: true on the sections you want alerts from)
-# notificationsSections:
-#   - title: "Review Requested"
-#     filters: "reason:review-requested"
-#     notify: true
+# Desktop notifications fire from notificationsSections with notify: true.
+# Only review_requested and team_mention reasons trigger alerts.
+notificationsSections:
+  - title: "Review Requested"
+    filters: "reason:review-requested"
+    notify: true
+  - title: "Participating"
+    filters: "reason:participating"
 
 # Keeps already-reviewed PRs visible — useful with the AI summary tab
 smartFilteringAtLaunch: false
