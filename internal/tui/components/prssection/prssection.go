@@ -3,6 +3,7 @@ package prssection
 import (
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/key"
@@ -153,6 +154,11 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 
 		case key.Matches(msg, keys.PRKeys.WatchChecks):
 			cmd = m.watchChecks()
+
+		case key.Matches(msg, keys.PRKeys.ToggleMerged):
+			m.toggleMergedFilter()
+			m.ResetRows()
+			return m, tea.Batch(m.FetchNextPageSectionRows()...)
 		}
 
 	case tasks.UpdatePRMsg:
@@ -271,6 +277,7 @@ func GetSectionColumns(
 	ciLayout := config.MergeColumnConfigs(dLayout.Ci, sLayout.Ci)
 	labelsLayout := config.MergeColumnConfigs(dLayout.Labels, sLayout.Labels)
 	linesLayout := config.MergeColumnConfigs(dLayout.Lines, sLayout.Lines)
+	requestedTeamsLayout := config.MergeColumnConfigs(dLayout.RequestedTeams, sLayout.RequestedTeams)
 
 	if !ctx.Config.Theme.Ui.Table.Compact {
 		return []table.Column{
@@ -308,6 +315,11 @@ func GetSectionColumns(
 				Title:  "󰯢",
 				Width:  utils.IntPtr(4),
 				Hidden: reviewStatusLayout.Hidden,
+			},
+			{
+				Title:  "Via",
+				Width:  requestedTeamsLayout.Width,
+				Hidden: requestedTeamsLayout.Hidden,
 			},
 			{
 				Title:  "",
@@ -378,6 +390,11 @@ func GetSectionColumns(
 			Title:  "󰯢",
 			Width:  utils.IntPtr(4),
 			Hidden: reviewStatusLayout.Hidden,
+		},
+		{
+			Title:  "Via",
+			Width:  requestedTeamsLayout.Width,
+			Hidden: requestedTeamsLayout.Hidden,
 		},
 		{
 			Title:  "",
@@ -517,6 +534,17 @@ func (m *Model) FetchNextPageSectionRows() []tea.Cmd {
 	}
 
 	return cmds
+}
+
+func (m *Model) toggleMergedFilter() {
+	search := m.SearchValue
+	if strings.Contains(search, "is:open") {
+		search = strings.Replace(search, "is:open", "is:merged", 1)
+	} else if strings.Contains(search, "is:merged") {
+		search = strings.Replace(search, "is:merged", "is:open", 1)
+	}
+	m.SearchValue = search
+	m.SearchBar.SetValue(search)
 }
 
 func (m *Model) ResetRows() {

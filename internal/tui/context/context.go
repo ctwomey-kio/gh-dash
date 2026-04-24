@@ -33,6 +33,7 @@ type ProgramContext struct {
 	RepoPath             string
 	RepoUrl              string
 	User                 string
+	MyTeamSlugs          []string
 	ScreenHeight         int
 	ScreenWidth          int
 	MainContentWidth     int

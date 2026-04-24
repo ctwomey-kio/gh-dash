@@ -68,6 +68,9 @@ defaults:
       base:
         width: 15
         hidden: false
+      requestedTeams:
+        width: 12
+        hidden: true
       labels:
         width: 22
         hidden: true
