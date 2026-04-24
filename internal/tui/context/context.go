@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/dlvhdr/gh-dash/v4/internal/ai"
 	"github.com/dlvhdr/gh-dash/v4/internal/config"
 	"github.com/dlvhdr/gh-dash/v4/internal/tui/theme"
 	"github.com/dlvhdr/gh-dash/v4/internal/utils"
@@ -48,6 +49,11 @@ type ProgramContext struct {
 	StartTask            func(task Task) tea.Cmd
 	Theme                theme.Theme
 	Styles               Styles
+
+	// AI features — initialized once config is loaded
+	AIClient     *ai.Client
+	AICache      *ai.SummaryCache
+	AINotifCache *ai.Cache[ai.NotificationSummaryResponse]
 }
 
 func (ctx *ProgramContext) GetViewSectionsConfig() []config.SectionConfig {
