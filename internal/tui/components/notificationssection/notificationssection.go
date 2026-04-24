@@ -353,8 +353,19 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 
 	case UpdateNotificationCommentsMsg:
 		// Update the notification with fetched data
-		log.Debug("UpdateNotificationCommentsMsg received", "id", msg.Id, "count",
-			msg.NewCommentsCount, "commitsSinceReview", msg.CommitsSinceReview, "state", msg.SubjectState, "actor", msg.Actor)
+		log.Debug(
+			"UpdateNotificationCommentsMsg received",
+			"id",
+			msg.Id,
+			"count",
+			msg.NewCommentsCount,
+			"commitsSinceReview",
+			msg.CommitsSinceReview,
+			"state",
+			msg.SubjectState,
+			"actor",
+			msg.Actor,
+		)
 		for i := range m.Notifications {
 			if m.Notifications[i].GetId() == msg.Id {
 				m.Notifications[i].NewCommentsCount = msg.NewCommentsCount
@@ -381,8 +392,19 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 					)
 				}
 				m.Table.SetRows(m.BuildRows())
-				log.Debug("Updated notification", "id", msg.Id, "count",
-					msg.NewCommentsCount, "commitsSinceReview", msg.CommitsSinceReview, "state", msg.SubjectState, "actor", msg.Actor)
+				log.Debug(
+					"Updated notification",
+					"id",
+					msg.Id,
+					"count",
+					msg.NewCommentsCount,
+					"commitsSinceReview",
+					msg.CommitsSinceReview,
+					"state",
+					msg.SubjectState,
+					"actor",
+					msg.Actor,
+				)
 				break
 			}
 		}
@@ -963,7 +985,9 @@ func (m *Model) UpdateProgramContext(ctx *context.ProgramContext) {
 // collectPendingNotifications seeds the notified store on first launch and returns
 // a map of notification IDs that need desktop alerts (unread + not yet notified).
 // Caps at 5 per fetch. Returns nil on first-launch seed (no alerts should fire).
-func collectPendingNotifications(notifications []notificationrow.Data) map[string]notificationrow.Data {
+func collectPendingNotifications(
+	notifications []notificationrow.Data,
+) map[string]notificationrow.Data {
 	store := data.GetNotifiedStore()
 
 	ids := make([]string, len(notifications))
@@ -1022,10 +1046,20 @@ func formatPRAuthor(login, displayName string) string {
 // fireAINotifForPR fires an AI-enriched desktop notification for a pull request.
 // Falls back to stats-only format if AI is unavailable or times out.
 // Marks the notification as notified in the store.
-func fireAINotifForPR(ctx *context.ProgramContext, n notificationrow.Data, pr data.EnrichedPullRequestData) {
+func fireAINotifForPR(
+	ctx *context.ProgramContext,
+	n notificationrow.Data,
+	pr data.EnrichedPullRequestData,
+) {
 	var badge, subtitle, message string
 	author := formatPRAuthor(pr.Author.Login, pr.Author.AsUser.Name)
-	subtitle = fmt.Sprintf("PR #%d · +%d −%d · %d files", pr.Number, pr.Additions, pr.Deletions, pr.Files.TotalCount)
+	subtitle = fmt.Sprintf(
+		"PR #%d · +%d −%d · %d files",
+		pr.Number,
+		pr.Additions,
+		pr.Deletions,
+		pr.Files.TotalCount,
+	)
 
 	if ctx != nil && ctx.AIClient != nil && ctx.AINotifCache != nil {
 		key := ai.CacheKey{URL: pr.Url, UpdatedAt: pr.UpdatedAt}
@@ -1095,7 +1129,12 @@ func fireAINotifForPR(ctx *context.ProgramContext, n notificationrow.Data, pr da
 // signal: new commits were pushed after the viewer's latest review. The subtitle always
 // shows the factual commit count; the message body is AI-enriched when available.
 // The caller is responsible for marking the notification as notified in the store.
-func fireAddressedNotification(ctx *context.ProgramContext, n notificationrow.Data, pr data.EnrichedPullRequestData, commitCount int) {
+func fireAddressedNotification(
+	ctx *context.ProgramContext,
+	n notificationrow.Data,
+	pr data.EnrichedPullRequestData,
+	commitCount int,
+) {
 	plural := "commits"
 	if commitCount == 1 {
 		plural = "commit"
@@ -1155,7 +1194,10 @@ func truncateNotifSummary(s string, maxLen int) string {
 // fetchCommentCountsForNotifications returns commands to fetch comment counts for the given notifications.
 // pendingNotifs is the set of notifications that need desktop alerts; PR entries fire AI-enriched
 // notifications after their data is fetched. Pass nil to skip all notification firing.
-func (m *Model) fetchCommentCountsForNotifications(notifications []notificationrow.Data, pendingNotifs map[string]notificationrow.Data) []tea.Cmd {
+func (m *Model) fetchCommentCountsForNotifications(
+	notifications []notificationrow.Data,
+	pendingNotifs map[string]notificationrow.Data,
+) []tea.Cmd {
 	var cmds []tea.Cmd
 
 	log.Debug("fetchCommentCountsForNotifications called", "numNotifications", len(notifications))
@@ -1222,7 +1264,8 @@ func (m *Model) fetchCommentCountsForNotifications(notifications []notificationr
 				// which causes IsNotified to return false and re-trigger on every launch.
 				if shouldNotify {
 					if pr.State == "MERGED" || pr.State == "CLOSED" {
-						data.GetNotifiedStore().MarkNotified(pendingNotif.GetId(), pendingNotif.GetUpdatedAt())
+						data.GetNotifiedStore().
+							MarkNotified(pendingNotif.GetId(), pendingNotif.GetUpdatedAt())
 					} else {
 						fireAINotifForPR(ctx, pendingNotif, pr)
 					}

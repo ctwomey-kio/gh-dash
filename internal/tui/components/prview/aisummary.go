@@ -157,7 +157,14 @@ func (m *Model) renderAISummary() string {
 		if m.aiMergedSummary == nil {
 			return faint.Render("No summary available.")
 		}
-		return m.renderMergedSummaryFields(*m.aiMergedSummary, false, m.aiSummaryDuration, faint, heading, body)
+		return m.renderMergedSummaryFields(
+			*m.aiMergedSummary,
+			false,
+			m.aiSummaryDuration,
+			faint,
+			heading,
+			body,
+		)
 	}
 
 	if m.aiSummary == nil {
@@ -169,7 +176,12 @@ func (m *Model) renderAISummary() string {
 
 // renderSummaryFields renders a PRSummaryResponse in structured form.
 // isPartial=true adds a ▌ cursor and skips duration; missing fields are silently omitted.
-func (m *Model) renderSummaryFields(s ai.PRSummaryResponse, isPartial bool, duration time.Duration, faint, heading, body lipgloss.Style) string {
+func (m *Model) renderSummaryFields(
+	s ai.PRSummaryResponse,
+	isPartial bool,
+	duration time.Duration,
+	faint, heading, body lipgloss.Style,
+) string {
 	var out strings.Builder
 
 	// Interest badge + category — render as soon as either field arrives
@@ -177,11 +189,14 @@ func (m *Model) renderSummaryFields(s ai.PRSummaryResponse, isPartial bool, dura
 		badgeStyle := lipgloss.NewStyle().Bold(true).Padding(0, 1)
 		switch s.Interest {
 		case "HIGH":
-			badgeStyle = badgeStyle.Background(m.ctx.Theme.ErrorText).Foreground(lipgloss.Color("#ffffff"))
+			badgeStyle = badgeStyle.Background(m.ctx.Theme.ErrorText).
+				Foreground(lipgloss.Color("#ffffff"))
 		case "MED":
-			badgeStyle = badgeStyle.Background(m.ctx.Theme.WarningText).Foreground(lipgloss.Color("#000000"))
+			badgeStyle = badgeStyle.Background(m.ctx.Theme.WarningText).
+				Foreground(lipgloss.Color("#000000"))
 		default:
-			badgeStyle = badgeStyle.Background(m.ctx.Theme.SuccessText).Foreground(lipgloss.Color("#000000"))
+			badgeStyle = badgeStyle.Background(m.ctx.Theme.SuccessText).
+				Foreground(lipgloss.Color("#000000"))
 		}
 		catStyle := lipgloss.NewStyle().Foreground(m.ctx.Theme.FaintText).MarginLeft(1)
 		durationStr := ""
@@ -249,7 +264,12 @@ func (m *Model) renderSummaryFields(s ai.PRSummaryResponse, isPartial bool, dura
 
 // renderMergedSummaryFields renders a MergedPRSummaryResponse for merged PRs.
 // isPartial=true adds a ▌ cursor; missing fields are silently omitted.
-func (m *Model) renderMergedSummaryFields(s ai.MergedPRSummaryResponse, isPartial bool, duration time.Duration, faint, heading, body lipgloss.Style) string {
+func (m *Model) renderMergedSummaryFields(
+	s ai.MergedPRSummaryResponse,
+	isPartial bool,
+	duration time.Duration,
+	faint, heading, body lipgloss.Style,
+) string {
 	var out strings.Builder
 
 	// MERGED badge + duration

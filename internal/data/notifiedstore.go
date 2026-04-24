@@ -60,7 +60,15 @@ func (s *NotifiedStore) load() error {
 	for id, raw := range tsMap {
 		t, err := time.Parse(time.RFC3339, raw)
 		if err != nil {
-			log.Warn("Skipping notified entry with invalid timestamp", "id", id, "raw", raw, "err", err)
+			log.Warn(
+				"Skipping notified entry with invalid timestamp",
+				"id",
+				id,
+				"raw",
+				raw,
+				"err",
+				err,
+			)
 			continue
 		}
 		s.entries[id] = t

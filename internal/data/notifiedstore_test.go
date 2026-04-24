@@ -24,8 +24,16 @@ func TestMarkAndIsNotified(t *testing.T) {
 	s.entries["notif-1"] = now // bypass save() by writing directly
 
 	require.True(t, s.IsNotified("notif-1", now))
-	require.True(t, s.IsNotified("notif-1", now.Add(-1*time.Minute)), "older updatedAt should still be notified")
-	require.False(t, s.IsNotified("notif-1", now.Add(1*time.Minute)), "newer updatedAt means new activity → should fire again")
+	require.True(
+		t,
+		s.IsNotified("notif-1", now.Add(-1*time.Minute)),
+		"older updatedAt should still be notified",
+	)
+	require.False(
+		t,
+		s.IsNotified("notif-1", now.Add(1*time.Minute)),
+		"newer updatedAt means new activity → should fire again",
+	)
 }
 
 func TestSeedIfNeededFirstLaunch(t *testing.T) {

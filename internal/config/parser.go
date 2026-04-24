@@ -107,8 +107,8 @@ type IssuesSectionConfig struct {
 type NotificationsSectionConfig struct {
 	Title   string
 	Filters string
-	Limit   *int  `yaml:"limit,omitempty"`
-	Notify  bool  `yaml:"notify,omitempty"`
+	Limit   *int `yaml:"limit,omitempty"`
+	Notify  bool `yaml:"notify,omitempty"`
 }
 
 type PreviewConfig struct {
@@ -153,21 +153,21 @@ type ColumnConfig struct {
 }
 
 type PrsLayoutConfig struct {
-	UpdatedAt    ColumnConfig `yaml:"updatedAt,omitempty"`
-	CreatedAt    ColumnConfig `yaml:"createdAt,omitempty"`
-	Repo         ColumnConfig `yaml:"repo,omitempty"`
-	Author       ColumnConfig `yaml:"author,omitempty"`
-	AuthorIcon   ColumnConfig `yaml:"authorIcon,omitempty"`
-	Labels       ColumnConfig `yaml:"labels,omitempty"`
-	Assignees    ColumnConfig `yaml:"assignees,omitempty"`
-	Title        ColumnConfig `yaml:"title,omitempty"`
-	Base         ColumnConfig `yaml:"base,omitempty"`
-	ReviewStatus    ColumnConfig `yaml:"reviewStatus,omitempty"`
-	RequestedTeams  ColumnConfig `yaml:"requestedTeams,omitempty"`
-	State           ColumnConfig `yaml:"state,omitempty"`
-	Ci              ColumnConfig `yaml:"ci,omitempty"`
-	Lines           ColumnConfig `yaml:"lines,omitempty"`
-	NumComments     ColumnConfig `yaml:"numComments,omitempty"`
+	UpdatedAt      ColumnConfig `yaml:"updatedAt,omitempty"`
+	CreatedAt      ColumnConfig `yaml:"createdAt,omitempty"`
+	Repo           ColumnConfig `yaml:"repo,omitempty"`
+	Author         ColumnConfig `yaml:"author,omitempty"`
+	AuthorIcon     ColumnConfig `yaml:"authorIcon,omitempty"`
+	Labels         ColumnConfig `yaml:"labels,omitempty"`
+	Assignees      ColumnConfig `yaml:"assignees,omitempty"`
+	Title          ColumnConfig `yaml:"title,omitempty"`
+	Base           ColumnConfig `yaml:"base,omitempty"`
+	ReviewStatus   ColumnConfig `yaml:"reviewStatus,omitempty"`
+	RequestedTeams ColumnConfig `yaml:"requestedTeams,omitempty"`
+	State          ColumnConfig `yaml:"state,omitempty"`
+	Ci             ColumnConfig `yaml:"ci,omitempty"`
+	Lines          ColumnConfig `yaml:"lines,omitempty"`
+	NumComments    ColumnConfig `yaml:"numComments,omitempty"`
 }
 
 type IssuesLayoutConfig struct {

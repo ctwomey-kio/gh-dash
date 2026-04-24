@@ -291,7 +291,10 @@ func GetSectionColumns(
 	ciLayout := config.MergeColumnConfigs(dLayout.Ci, sLayout.Ci)
 	labelsLayout := config.MergeColumnConfigs(dLayout.Labels, sLayout.Labels)
 	linesLayout := config.MergeColumnConfigs(dLayout.Lines, sLayout.Lines)
-	requestedTeamsLayout := config.MergeColumnConfigs(dLayout.RequestedTeams, sLayout.RequestedTeams)
+	requestedTeamsLayout := config.MergeColumnConfigs(
+		dLayout.RequestedTeams,
+		sLayout.RequestedTeams,
+	)
 
 	if !ctx.Config.Theme.Ui.Table.Compact {
 		return []table.Column{

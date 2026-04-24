@@ -25,7 +25,11 @@ func Send(n Notification) {
 
 // sendWith is the testable core of Send. lookPath resolves binary names;
 // run executes the binary. Both are injected so tests can avoid shelling out.
-func sendWith(n Notification, lookPath func(string) (string, error), run func(string, ...string) error) {
+func sendWith(
+	n Notification,
+	lookPath func(string) (string, error),
+	run func(string, ...string) error,
+) {
 	if tn, err := lookPath("terminal-notifier"); err == nil {
 		args := []string{
 			"-title", n.Title,

@@ -210,7 +210,8 @@ func (pr *PullRequest) renderExtendedTitle(isSelected bool) string {
 			Background(pr.Ctx.Theme.SelectedBackground)
 	}
 
-	author := baseStyle.Bold(true).Render(pr.Data.Primary.GetAuthor(pr.Ctx.Theme, pr.ShowAuthorIcon))
+	author := baseStyle.Bold(true).
+		Render(pr.Data.Primary.GetAuthor(pr.Ctx.Theme, pr.ShowAuthorIcon))
 	top := lipgloss.JoinHorizontal(lipgloss.Top, pr.Data.Primary.Repository.NameWithOwner,
 		fmt.Sprintf(" #%d by %s", pr.Data.Primary.Number, author))
 	branchHidden := pr.Ctx.Config.Defaults.Layout.Prs.Base.Hidden

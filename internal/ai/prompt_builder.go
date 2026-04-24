@@ -46,7 +46,10 @@ type prPromptPayload struct {
 
 // BuildPRPromptPayload serializes PR data into the JSON payload for the LLM user message.
 // Truncation: body 2000 chars, files 50, commits 50 — matching the Slack prototype limits.
-func BuildPRPromptPayload(primary *data.PullRequestData, enriched data.EnrichedPullRequestData) string {
+func BuildPRPromptPayload(
+	primary *data.PullRequestData,
+	enriched data.EnrichedPullRequestData,
+) string {
 	body := enriched.Body
 	if len(body) > 2000 {
 		body = body[:2000]

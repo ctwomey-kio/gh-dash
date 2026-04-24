@@ -10,8 +10,8 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
-	log "charm.land/log/v2"
 	"charm.land/lipgloss/v2"
+	log "charm.land/log/v2"
 
 	"github.com/dlvhdr/gh-dash/v4/internal/ai"
 	"github.com/dlvhdr/gh-dash/v4/internal/data"
@@ -54,7 +54,14 @@ type Model struct {
 	aiStreamCancel    stdctx.CancelFunc
 }
 
-var tabs = []string{"󱹺 AI Summary", " Overview", " Activity", " Commits", " Checks", " Files Changed"}
+var tabs = []string{
+	"󱹺 AI Summary",
+	" Overview",
+	" Activity",
+	" Commits",
+	" Checks",
+	" Files Changed",
+}
 
 // AISummaryMsg carries the final result of an AI summary fetch (streaming or cache hit).
 // For merged PRs, MergedData is set instead of Data.
@@ -907,7 +914,12 @@ func (m *Model) FetchAISummary() tea.Cmd {
 		c := cached
 		m.aiSummaryLoading = true
 		return func() tea.Msg {
-			return AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, ViewerReviewState: viewerReviewState, Data: &c}
+			return AISummaryMsg{
+				PRURL:             prURL,
+				UpdatedAt:         updatedAt,
+				ViewerReviewState: viewerReviewState,
+				Data:              &c,
+			}
 		}
 	}
 
@@ -929,7 +941,11 @@ func (m *Model) FetchAISummary() tea.Cmd {
 	go func() {
 		defer close(textCh)
 		start := time.Now()
-		raw, err := client.StreamSummary(ctx, ai.Request{Mode: ai.PRSummary, Payload: payload}, textCh)
+		raw, err := client.StreamSummary(
+			ctx,
+			ai.Request{Mode: ai.PRSummary, Payload: payload},
+			textCh,
+		)
 		elapsed := time.Since(start)
 		cancel()
 
@@ -993,7 +1009,11 @@ func (m *Model) fetchMergedAISummary() tea.Cmd {
 	go func() {
 		defer close(textCh)
 		start := time.Now()
-		raw, err := client.StreamSummary(ctx, ai.Request{Mode: ai.MergedPRSummary, Payload: payload}, textCh)
+		raw, err := client.StreamSummary(
+			ctx,
+			ai.Request{Mode: ai.MergedPRSummary, Payload: payload},
+			textCh,
+		)
 		elapsed := time.Since(start)
 		cancel()
 
@@ -1037,12 +1057,22 @@ func (m *Model) IsCurrentPR(url string) bool {
 // Display state is only updated when the message is for the currently shown PR.
 func (m *Model) SetAISummary(msg AISummaryMsg) {
 	isCurrentPR := m.pr != nil && m.pr.Data.Primary.Url == msg.PRURL
-	cacheKey := ai.CacheKey{URL: msg.PRURL, UpdatedAt: msg.UpdatedAt, ViewerReviewState: msg.ViewerReviewState}
+	cacheKey := ai.CacheKey{
+		URL:               msg.PRURL,
+		UpdatedAt:         msg.UpdatedAt,
+		ViewerReviewState: msg.ViewerReviewState,
+	}
 
 	// Always store successful results in cache — even for PRs the user has navigated away from.
 	if msg.Err == nil && m.ctx != nil {
 		if msg.MergedData != nil && m.ctx.AIMergedCache != nil {
-			log.Debug("SetAISummary: caching merged result", "url", msg.PRURL, "isCurrent", isCurrentPR)
+			log.Debug(
+				"SetAISummary: caching merged result",
+				"url",
+				msg.PRURL,
+				"isCurrent",
+				isCurrentPR,
+			)
 			m.ctx.AIMergedCache.Set(cacheKey, *msg.MergedData)
 		} else if msg.Data != nil && m.ctx.AICache != nil {
 			log.Debug("SetAISummary: caching result", "url", msg.PRURL, "isCurrent", isCurrentPR)

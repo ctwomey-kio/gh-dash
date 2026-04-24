@@ -25,8 +25,17 @@ func TestSendWithTerminalNotifier(t *testing.T) {
 		return nil
 	}
 
-	n := Notification{Title: "gh-dash", Subtitle: "PR #42", Message: "review requested", OpenURL: "https://github.com/org/repo/pull/42"}
-	sendWith(n, fakeLookPath(map[string]string{"terminal-notifier": "/usr/local/bin/terminal-notifier"}), run)
+	n := Notification{
+		Title:    "gh-dash",
+		Subtitle: "PR #42",
+		Message:  "review requested",
+		OpenURL:  "https://github.com/org/repo/pull/42",
+	}
+	sendWith(
+		n,
+		fakeLookPath(map[string]string{"terminal-notifier": "/usr/local/bin/terminal-notifier"}),
+		run,
+	)
 
 	require.Equal(t, "/usr/local/bin/terminal-notifier", calledBin)
 	require.Contains(t, calledArgs, "-title")

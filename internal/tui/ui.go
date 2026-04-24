@@ -748,7 +748,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if section, ok := m.prs[msg.Id].(*prssection.Model); ok {
 				section.EnrichPR(msg.Data)
 			} else {
-				log.Debug("EnrichedPrMsg: prs[id] is not *prssection.Model", "id", msg.Id, "len_prs", len(m.prs))
+				log.Debug(
+					"EnrichedPrMsg: prs[id] is not *prssection.Model",
+					"id",
+					msg.Id,
+					"len_prs",
+					len(m.prs),
+				)
 			}
 			syncCmd := m.syncSidebar()
 			cmds = append(cmds, syncCmd)

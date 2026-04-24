@@ -103,18 +103,18 @@ type PullRequestData struct {
 	HeadRef struct {
 		Name string
 	}
-	Repository       Repository
-	Assignees        Assignees      `graphql:"assignees(first: 3)"`
-	Comments         Comments       `graphql:"comments"`
-	ReviewThreads    ReviewThreads  `graphql:"reviewThreads"`
-	Reviews          Reviews        `graphql:"reviews(last: 3)"`
-	ReviewRequests   ReviewRequests `graphql:"reviewRequests(last: 5)"`
-	Files            ChangedFiles   `graphql:"files(first: 5)"`
-	IsDraft          bool
-	IsInMergeQueue   bool
-	Commits          Commits          `graphql:"commits(last: 1)"`
-	Labels           PRLabels         `graphql:"labels(first: 6)"`
-	MergeStateStatus MergeStateStatus `graphql:"mergeStateStatus"`
+	Repository         Repository
+	Assignees          Assignees      `graphql:"assignees(first: 3)"`
+	Comments           Comments       `graphql:"comments"`
+	ReviewThreads      ReviewThreads  `graphql:"reviewThreads"`
+	Reviews            Reviews        `graphql:"reviews(last: 3)"`
+	ReviewRequests     ReviewRequests `graphql:"reviewRequests(last: 5)"`
+	Files              ChangedFiles   `graphql:"files(first: 5)"`
+	IsDraft            bool
+	IsInMergeQueue     bool
+	Commits            Commits             `graphql:"commits(last: 1)"`
+	Labels             PRLabels            `graphql:"labels(first: 6)"`
+	MergeStateStatus   MergeStateStatus    `graphql:"mergeStateStatus"`
 	ViewerLatestReview *ViewerLatestReview `graphql:"viewerLatestReview"`
 }
 
@@ -472,30 +472,30 @@ func (data PullRequestData) GetCreatedAt() time.Time {
 // This is useful when we fetch a single PR and need basic PR fields
 func (e EnrichedPullRequestData) ToPullRequestData() PullRequestData {
 	return PullRequestData{
-		Number:            e.Number,
-		Title:             e.Title,
-		Body:              e.Body,
+		Number: e.Number,
+		Title:  e.Title,
+		Body:   e.Body,
 		Author: struct {
 			Login  string
 			AsUser struct {
 				Name string
 			} `graphql:"... on User"`
 		}{Login: e.Author.Login},
-		AuthorAssociation: e.AuthorAssociation,
-		UpdatedAt:         e.UpdatedAt,
-		CreatedAt:         e.CreatedAt,
-		Url:               e.Url,
-		State:             e.State,
-		Mergeable:         e.Mergeable,
-		ReviewDecision:    e.ReviewDecision,
-		Additions:         e.Additions,
-		Deletions:         e.Deletions,
-		HeadRefName:       e.HeadRefName,
-		BaseRefName:       e.BaseRefName,
-		HeadRepository:    e.HeadRepository,
-		HeadRef:           e.HeadRef,
-		Repository:        e.Repository,
-		Assignees:         e.Assignees,
+		AuthorAssociation:  e.AuthorAssociation,
+		UpdatedAt:          e.UpdatedAt,
+		CreatedAt:          e.CreatedAt,
+		Url:                e.Url,
+		State:              e.State,
+		Mergeable:          e.Mergeable,
+		ReviewDecision:     e.ReviewDecision,
+		Additions:          e.Additions,
+		Deletions:          e.Deletions,
+		HeadRefName:        e.HeadRefName,
+		BaseRefName:        e.BaseRefName,
+		HeadRepository:     e.HeadRepository,
+		HeadRef:            e.HeadRef,
+		Repository:         e.Repository,
+		Assignees:          e.Assignees,
 		IsDraft:            e.IsDraft,
 		Labels:             e.Labels,
 		Files:              e.Files,

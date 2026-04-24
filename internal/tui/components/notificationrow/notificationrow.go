@@ -225,19 +225,25 @@ func (n *Notification) getReasonDescription() string {
 // Returns 3 lines to match Title column for proper background highlighting.
 func (n *Notification) renderActivity() string {
 	// Use raw ANSI foreground codes without reset to avoid breaking row background
-	white := "\x1b[97m" // Bright white
-	green := "\x1b[32m" // Green
+	white := "\x1b[97m"  // Bright white
+	green := "\x1b[32m"  // Green
 	yellow := "\x1b[33m" // Yellow/amber for "needs re-review"
 
 	line1 := ""
 	line2 := ""
 
 	if n.Data.NewCommentsCount > 0 {
-		line1 = white + fmt.Sprintf("+%d ", n.Data.NewCommentsCount) + green + constants.CommentsIcon
+		line1 = white + fmt.Sprintf(
+			"+%d ",
+			n.Data.NewCommentsCount,
+		) + green + constants.CommentsIcon
 	}
 
 	if n.Data.CommitsSinceReview > 0 {
-		commitLine := white + fmt.Sprintf("+%d ", n.Data.CommitsSinceReview) + yellow + constants.CommitIcon
+		commitLine := white + fmt.Sprintf(
+			"+%d ",
+			n.Data.CommitsSinceReview,
+		) + yellow + constants.CommitIcon
 		if line1 == "" {
 			line1 = commitLine
 		} else {

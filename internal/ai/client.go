@@ -73,7 +73,11 @@ func (c *Client) GenerateSummary(ctx context.Context, req Request) (string, erro
 // StreamSummary streams the response, sending text chunks to tokenCh as they arrive.
 // It returns the full accumulated text and any error. tokenCh is NOT closed by this method.
 // The caller should close tokenCh after this returns.
-func (c *Client) StreamSummary(ctx context.Context, req Request, tokenCh chan<- string) (string, error) {
+func (c *Client) StreamSummary(
+	ctx context.Context,
+	req Request,
+	tokenCh chan<- string,
+) (string, error) {
 	var accum strings.Builder
 	stream := c.inner.Messages.NewStreaming(ctx, anthropic.MessageNewParams{
 		Model:     anthropic.Model(c.model),
