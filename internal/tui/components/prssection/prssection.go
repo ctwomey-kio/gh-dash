@@ -209,6 +209,20 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 			} else {
 				m.Prs = msg.Prs
 			}
+			// Stable-sort: PRs the viewer has already reviewed sink to the bottom.
+			slices.SortStableFunc(m.Prs, func(a, b prrow.Data) int {
+				aReviewed := a.Primary != nil && a.Primary.ViewerLatestReview != nil &&
+					(a.Primary.ViewerLatestReview.State == "APPROVED" || a.Primary.ViewerLatestReview.State == "CHANGES_REQUESTED")
+				bReviewed := b.Primary != nil && b.Primary.ViewerLatestReview != nil &&
+					(b.Primary.ViewerLatestReview.State == "APPROVED" || b.Primary.ViewerLatestReview.State == "CHANGES_REQUESTED")
+				if aReviewed == bReviewed {
+					return 0
+				}
+				if aReviewed {
+					return 1
+				}
+				return -1
+			})
 			m.TotalCount = msg.TotalCount
 			m.PageInfo = &msg.PageInfo
 			m.SetIsLoading(false)

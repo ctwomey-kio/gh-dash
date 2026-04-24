@@ -6,10 +6,12 @@ import (
 )
 
 // CacheKey uniquely identifies a PR summary.
-// Using URL + UpdatedAt means the cache auto-invalidates when the PR changes.
+// Using URL + UpdatedAt + ViewerReviewState means the cache auto-invalidates when the PR changes
+// or when the viewer's review state transitions (e.g. after approving).
 type CacheKey struct {
-	URL       string
-	UpdatedAt time.Time
+	URL               string
+	UpdatedAt         time.Time
+	ViewerReviewState string
 }
 
 // Cache is a thread-safe in-memory LRU-eviction cache.

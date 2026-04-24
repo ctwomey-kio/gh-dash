@@ -26,6 +26,12 @@ type PullRequest struct {
 }
 
 func (pr *PullRequest) getTextStyle() lipgloss.Style {
+	if pr.Data.Primary != nil && pr.Data.Primary.ViewerLatestReview != nil {
+		s := pr.Data.Primary.ViewerLatestReview.State
+		if s == "APPROVED" || s == "CHANGES_REQUESTED" {
+			return pr.Ctx.Styles.Common.FaintTextStyle
+		}
+	}
 	return components.GetIssueTextStyle(pr.Ctx)
 }
 
@@ -187,6 +193,18 @@ func (pr *PullRequest) renderTitle() string {
 
 func (pr *PullRequest) renderExtendedTitle(isSelected bool) string {
 	baseStyle := lipgloss.NewStyle()
+
+	viewerReviewed := pr.Data.Primary != nil && pr.Data.Primary.ViewerLatestReview != nil &&
+		(pr.Data.Primary.ViewerLatestReview.State == "APPROVED" ||
+			pr.Data.Primary.ViewerLatestReview.State == "CHANGES_REQUESTED")
+
+	metaFg := pr.Ctx.Theme.SecondaryText
+	titleFg := pr.Ctx.Theme.PrimaryText
+	if viewerReviewed && !isSelected {
+		metaFg = pr.Ctx.Theme.FaintText
+		titleFg = pr.Ctx.Theme.FaintText
+	}
+
 	if isSelected {
 		baseStyle = baseStyle.Foreground(pr.Ctx.Theme.SecondaryText).
 			Background(pr.Ctx.Theme.SelectedBackground)
@@ -208,13 +226,13 @@ func (pr *PullRequest) renderExtendedTitle(isSelected bool) string {
 		}
 	}
 	width := titleColumn.ComputedWidth - 2
-	top = baseStyle.Foreground(pr.Ctx.Theme.SecondaryText).
+	top = baseStyle.Foreground(metaFg).
 		Width(width).
 		MaxWidth(width).
 		Height(1).
 		MaxHeight(1).
 		Render(top)
-	title = baseStyle.Foreground(pr.Ctx.Theme.PrimaryText).Bold(true).Width(width).MaxWidth(
+	title = baseStyle.Foreground(titleFg).Bold(!viewerReviewed || isSelected).Width(width).MaxWidth(
 		width).Height(1).MaxHeight(1).Render(title)
 
 	return baseStyle.Render(lipgloss.JoinVertical(lipgloss.Left, top, title))

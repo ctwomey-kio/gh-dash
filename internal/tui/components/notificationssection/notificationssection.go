@@ -354,22 +354,35 @@ func (m *Model) Update(msg tea.Msg) (section.Section, tea.Cmd) {
 	case UpdateNotificationCommentsMsg:
 		// Update the notification with fetched data
 		log.Debug("UpdateNotificationCommentsMsg received", "id", msg.Id, "count",
-			msg.NewCommentsCount, "state", msg.SubjectState, "actor", msg.Actor)
+			msg.NewCommentsCount, "commitsSinceReview", msg.CommitsSinceReview, "state", msg.SubjectState, "actor", msg.Actor)
 		for i := range m.Notifications {
 			if m.Notifications[i].GetId() == msg.Id {
 				m.Notifications[i].NewCommentsCount = msg.NewCommentsCount
+				m.Notifications[i].CommitsSinceReview = msg.CommitsSinceReview
 				m.Notifications[i].SubjectState = msg.SubjectState
 				m.Notifications[i].IsDraft = msg.IsDraft
 				m.Notifications[i].Actor = msg.Actor
-				// Generate activity description based on reason, type, and actor
-				m.Notifications[i].ActivityDescription = notificationrow.GenerateActivityDescription(
-					m.Notifications[i].GetReason(),
-					m.Notifications[i].GetSubjectType(),
-					msg.Actor,
-				)
+				// When commits since review are detected, use that as the activity description
+				// since it's higher-value context than the generic reason-based description.
+				if msg.CommitsSinceReview > 0 {
+					plural := "commits"
+					if msg.CommitsSinceReview == 1 {
+						plural = "commit"
+					}
+					m.Notifications[i].ActivityDescription = fmt.Sprintf(
+						"%d new %s since your review",
+						msg.CommitsSinceReview, plural,
+					)
+				} else {
+					m.Notifications[i].ActivityDescription = notificationrow.GenerateActivityDescription(
+						m.Notifications[i].GetReason(),
+						m.Notifications[i].GetSubjectType(),
+						msg.Actor,
+					)
+				}
 				m.Table.SetRows(m.BuildRows())
 				log.Debug("Updated notification", "id", msg.Id, "count",
-					msg.NewCommentsCount, "state", msg.SubjectState, "actor", msg.Actor)
+					msg.NewCommentsCount, "commitsSinceReview", msg.CommitsSinceReview, "state", msg.SubjectState, "actor", msg.Actor)
 				break
 			}
 		}
@@ -881,11 +894,12 @@ type UpdateNotificationMsg struct {
 // UpdateNotificationCommentsMsg carries additional notification metadata fetched asynchronously.
 // This includes comment counts, PR/Issue state, draft status, and the actor who triggered the notification.
 type UpdateNotificationCommentsMsg struct {
-	Id               string
-	NewCommentsCount int
-	SubjectState     string // OPEN, CLOSED, MERGED
-	IsDraft          bool
-	Actor            string // Username who triggered the notification
+	Id                 string
+	NewCommentsCount   int
+	CommitsSinceReview int
+	SubjectState       string // OPEN, CLOSED, MERGED
+	IsDraft            bool
+	Actor              string // Username who triggered the notification
 }
 
 // UpdateNotificationUrlMsg carries a resolved URL for notifications where the URL
@@ -993,11 +1007,24 @@ func isHighSignalReason(reason string) bool {
 	return reason == data.ReasonReviewRequested || reason == data.ReasonTeamMention
 }
 
+// formatPRAuthor returns "First L." when the GitHub display name is set, otherwise the login.
+func formatPRAuthor(login, displayName string) string {
+	if displayName != "" {
+		parts := strings.Fields(displayName)
+		if len(parts) >= 2 {
+			return parts[0] + " " + string([]rune(parts[len(parts)-1])[0]) + "."
+		}
+		return parts[0]
+	}
+	return login
+}
+
 // fireAINotifForPR fires an AI-enriched desktop notification for a pull request.
 // Falls back to stats-only format if AI is unavailable or times out.
 // Marks the notification as notified in the store.
 func fireAINotifForPR(ctx *context.ProgramContext, n notificationrow.Data, pr data.EnrichedPullRequestData) {
 	var badge, subtitle, message string
+	author := formatPRAuthor(pr.Author.Login, pr.Author.AsUser.Name)
 	subtitle = fmt.Sprintf("PR #%d · +%d −%d · %d files", pr.Number, pr.Additions, pr.Deletions, pr.Files.TotalCount)
 
 	if ctx != nil && ctx.AIClient != nil && ctx.AINotifCache != nil {
@@ -1046,9 +1073,9 @@ func fireAINotifForPR(ctx *context.ProgramContext, n notificationrow.Data, pr da
 
 	var title string
 	if badge != "" {
-		title = fmt.Sprintf("gh-dash %s · %s", badge, n.GetRepoNameWithOwner())
+		title = fmt.Sprintf("%s %s · %s", author, badge, n.GetRepoNameWithOwner())
 	} else {
-		title = "gh-dash — " + n.GetRepoNameWithOwner()
+		title = author + " — " + n.GetRepoNameWithOwner()
 	}
 	if message == "" {
 		message = pr.Title
@@ -1062,6 +1089,54 @@ func fireAINotifForPR(ctx *context.ProgramContext, n notificationrow.Data, pr da
 		OpenURL:  n.GetUrl(),
 	})
 	data.GetNotifiedStore().MarkNotified(n.GetId(), n.GetUpdatedAt())
+}
+
+// fireAddressedNotification fires a desktop notification for the "addressed your comments"
+// signal: new commits were pushed after the viewer's latest review. The subtitle always
+// shows the factual commit count; the message body is AI-enriched when available.
+// The caller is responsible for marking the notification as notified in the store.
+func fireAddressedNotification(ctx *context.ProgramContext, n notificationrow.Data, pr data.EnrichedPullRequestData, commitCount int) {
+	plural := "commits"
+	if commitCount == 1 {
+		plural = "commit"
+	}
+	author := formatPRAuthor(pr.Author.Login, pr.Author.AsUser.Name)
+	subtitle := fmt.Sprintf("%d new %s since your review", commitCount, plural)
+	message := pr.Title
+	badge := ""
+
+	if ctx != nil && ctx.AIClient != nil {
+		callCtx, cancel := gocontext.WithTimeout(gocontext.Background(), 5*time.Second)
+		defer cancel()
+		payload := ai.BuildAddressedPromptPayload(pr, commitCount)
+		raw, err := ctx.AIClient.GenerateSummary(callCtx, ai.Request{
+			Mode:    ai.AddressedSummary,
+			Payload: payload,
+		})
+		if err != nil {
+			log.Debug("AI addressed summary failed", "err", err, "id", n.GetId())
+		} else if parsed, err := ai.ParseNotificationSummary(raw); err != nil {
+			log.Debug("AI addressed summary parse failed", "err", err, "id", n.GetId())
+		} else if parsed.Interest != "" {
+			badge = fmt.Sprintf("[%s]", parsed.Interest)
+			message = pr.Title + "\n" + parsed.Summary
+		}
+	}
+
+	var title string
+	if badge != "" {
+		title = fmt.Sprintf("%s %s · %s", author, badge, n.GetRepoNameWithOwner())
+	} else {
+		title = author + " — " + n.GetRepoNameWithOwner()
+	}
+
+	notify.Send(notify.Notification{
+		Title:    title,
+		Subtitle: subtitle,
+		Message:  message,
+		Group:    "gh-dash",
+		OpenURL:  n.GetUrl(),
+	})
 }
 
 // truncateNotifSummary truncates s to at most maxLen characters,
@@ -1115,6 +1190,7 @@ func (m *Model) fetchCommentCountsForNotifications(notifications []notificationr
 			// Capture variables for closure
 			id, url, readAt, commentUrl := notifId, subjectUrl, lastReadAt, latestCommentUrl
 			pendingNotif, shouldNotify := pendingNotifs[id]
+			notifData := notif // value copy for addressed notification
 			cmds = append(cmds, func() tea.Msg {
 				log.Debug("Fetching PR for comment count", "url", url)
 				pr, err := data.FetchPullRequest(url)
@@ -1127,27 +1203,47 @@ func (m *Model) fetchCommentCountsForNotifications(notifications []notificationr
 				if actor == "" {
 					actor = pr.Author.Login
 				}
+				commitsSinceReview, _ := data.CommitsSinceReview(pr)
 				log.Debug(
 					"Got PR comment count",
 					"id",
 					id,
 					"count",
 					count,
+					"commitsSinceReview",
+					commitsSinceReview,
 					"state",
 					pr.State,
 					"actor",
 					actor,
 				)
-				// Fire AI-enriched desktop notification now that we have full PR data
+				// Fire AI-enriched desktop notification now that we have full PR data.
+				// Skip merged/closed PRs: merging updates the notification's updated_at,
+				// which causes IsNotified to return false and re-trigger on every launch.
 				if shouldNotify {
-					fireAINotifForPR(ctx, pendingNotif, pr)
+					if pr.State == "MERGED" || pr.State == "CLOSED" {
+						data.GetNotifiedStore().MarkNotified(pendingNotif.GetId(), pendingNotif.GetUpdatedAt())
+					} else {
+						fireAINotifForPR(ctx, pendingNotif, pr)
+					}
+				} else if commitsSinceReview > 0 && pr.State != "MERGED" {
+					// "Addressed your comments" signal: new commits after viewer's review.
+					// Only fires if a reason-based notification didn't already fire.
+					// Skip for merged PRs — the merge commit triggers a false positive.
+					store := data.GetNotifiedStore()
+					addressedKey := id + ":addressed"
+					if !store.IsNotified(addressedKey, notifData.GetUpdatedAt()) {
+						fireAddressedNotification(ctx, notifData, pr, commitsSinceReview)
+						store.MarkNotified(addressedKey, notifData.GetUpdatedAt())
+					}
 				}
 				return UpdateNotificationCommentsMsg{
-					Id:               id,
-					NewCommentsCount: count,
-					SubjectState:     pr.State,
-					IsDraft:          pr.IsDraft,
-					Actor:            actor,
+					Id:                 id,
+					NewCommentsCount:   count,
+					CommitsSinceReview: commitsSinceReview,
+					SubjectState:       pr.State,
+					IsDraft:            pr.IsDraft,
+					Actor:              actor,
 				}
 			})
 		case "Issue":
@@ -1186,7 +1282,7 @@ func (m *Model) fetchCommentCountsForNotifications(notifications []notificationr
 						activity = pendingNotif.GetReason()
 					}
 					notify.Send(notify.Notification{
-						Title:    "gh-dash — " + pendingNotif.GetRepoNameWithOwner(),
+						Title:    pendingNotif.GetRepoNameWithOwner(),
 						Subtitle: activity,
 						Message:  pendingNotif.GetTitle(),
 						Group:    "gh-dash",

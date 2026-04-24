@@ -34,7 +34,10 @@ type EnrichedPullRequestData struct {
 	State   string
 	IsDraft bool
 	Author  struct {
-		Login string
+		Login  string
+		AsUser struct {
+			Name string
+		} `graphql:"... on User"`
 	}
 	AuthorAssociation string
 	UpdatedAt         time.Time
@@ -61,7 +64,16 @@ type EnrichedPullRequestData struct {
 	ReviewRequests     ReviewRequests             `graphql:"reviewRequests(last: 100)"`
 	Reviews            Reviews                    `graphql:"reviews(last: 100)"`
 	SuggestedReviewers []SuggestedReviewer
-	Files              ChangedFiles `graphql:"files(first: 5)"`
+	Files              ChangedFiles        `graphql:"files(first: 5)"`
+	ViewerLatestReview *ViewerLatestReview `graphql:"viewerLatestReview"`
+}
+
+// ViewerLatestReview holds the authenticated user's most recent review on a PR.
+// SubmittedAt is nil for PENDING reviews (not yet submitted).
+type ViewerLatestReview struct {
+	State       string
+	SubmittedAt *time.Time
+	CreatedAt   time.Time
 }
 
 type PullRequestData struct {
@@ -103,6 +115,7 @@ type PullRequestData struct {
 	Commits          Commits          `graphql:"commits(last: 1)"`
 	Labels           PRLabels         `graphql:"labels(first: 6)"`
 	MergeStateStatus MergeStateStatus `graphql:"mergeStateStatus"`
+	ViewerLatestReview *ViewerLatestReview `graphql:"viewerLatestReview"`
 }
 
 type CheckRun struct {
@@ -483,9 +496,10 @@ func (e EnrichedPullRequestData) ToPullRequestData() PullRequestData {
 		HeadRef:           e.HeadRef,
 		Repository:        e.Repository,
 		Assignees:         e.Assignees,
-		IsDraft:           e.IsDraft,
-		Labels:            e.Labels,
-		Files:             e.Files,
+		IsDraft:            e.IsDraft,
+		Labels:             e.Labels,
+		Files:              e.Files,
+		ViewerLatestReview: e.ViewerLatestReview,
 		// Note: Comments, ReviewThreads, Reviews, ReviewRequests, Commits
 		// have different types in EnrichedPullRequestData vs PullRequestData
 		// We leave them as zero values since the enriched data will be used instead
@@ -610,4 +624,25 @@ func FetchPullRequest(prUrl string) (EnrichedPullRequestData, error) {
 	log.Info("Successfully fetched PR", "url", prUrl)
 
 	return queryResult.Resource.PullRequest, nil
+}
+
+// CommitsSinceReview returns the number of commits pushed after the viewer's latest
+// review, and the timestamp of that review. Returns (0, zero) if the viewer has never
+// reviewed the PR or if no commits are newer than the review.
+func CommitsSinceReview(pr EnrichedPullRequestData) (count int, reviewedAt time.Time) {
+	if pr.ViewerLatestReview == nil {
+		return 0, time.Time{}
+	}
+	// Prefer SubmittedAt (when review was actually submitted);
+	// fall back to CreatedAt (covers PENDING reviews).
+	reviewedAt = pr.ViewerLatestReview.CreatedAt
+	if pr.ViewerLatestReview.SubmittedAt != nil {
+		reviewedAt = *pr.ViewerLatestReview.SubmittedAt
+	}
+	for _, node := range pr.AllCommits.Nodes {
+		if node.Commit.CommittedDate.After(reviewedAt) {
+			count++
+		}
+	}
+	return count, reviewedAt
 }

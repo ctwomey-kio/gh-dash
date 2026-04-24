@@ -19,6 +19,7 @@ const (
 type Data struct {
 	Notification        data.NotificationData
 	NewCommentsCount    int    // Number of new comments since last read
+	CommitsSinceReview  int    // Number of new commits pushed after the viewer's latest review (0 = N/A)
 	SubjectState        string // State of the PR/Issue (OPEN, CLOSED, MERGED)
 	IsDraft             bool   // Whether PR is a draft
 	Actor               string // Username of the user who triggered the notification

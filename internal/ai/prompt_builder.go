@@ -28,18 +28,20 @@ type promptComment struct {
 }
 
 type prPromptPayload struct {
-	Title          string         `json:"title"`
-	Body           string         `json:"body"`
-	Author         string         `json:"author"`
-	State          string         `json:"state"`
-	ReviewDecision string         `json:"reviewDecision"`
-	Additions      int            `json:"additions"`
-	Deletions      int            `json:"deletions"`
-	IsDraft        bool           `json:"isDraft"`
-	Files          []promptFile   `json:"files"`
-	Commits        []promptCommit `json:"commits"`
-	Reviews        []promptReview `json:"reviews"`
-	Comments       []promptComment `json:"comments"`
+	Title              string          `json:"title"`
+	Body               string          `json:"body"`
+	Author             string          `json:"author"`
+	State              string          `json:"state"`
+	ReviewDecision     string          `json:"reviewDecision"`
+	Additions          int             `json:"additions"`
+	Deletions          int             `json:"deletions"`
+	IsDraft            bool            `json:"isDraft"`
+	Files              []promptFile    `json:"files"`
+	Commits            []promptCommit  `json:"commits"`
+	Reviews            []promptReview  `json:"reviews"`
+	Comments           []promptComment `json:"comments"`
+	ViewerReviewState  string          `json:"viewerReviewState,omitempty"`
+	ViewerReviewedDate string          `json:"viewerReviewedDate,omitempty"`
 }
 
 // BuildPRPromptPayload serializes PR data into the JSON payload for the LLM user message.
@@ -100,19 +102,32 @@ func BuildPRPromptPayload(primary *data.PullRequestData, enriched data.EnrichedP
 		author = primary.Author.AsUser.Name
 	}
 
+	viewerReviewState := ""
+	viewerReviewedDate := ""
+	if vlr := enriched.ViewerLatestReview; vlr != nil {
+		viewerReviewState = vlr.State
+		t := vlr.CreatedAt
+		if vlr.SubmittedAt != nil {
+			t = *vlr.SubmittedAt
+		}
+		viewerReviewedDate = t.Format("2006-01-02")
+	}
+
 	payload := prPromptPayload{
-		Title:          enriched.Title,
-		Body:           body,
-		Author:         author,
-		State:          enriched.State,
-		ReviewDecision: enriched.ReviewDecision,
-		Additions:      enriched.Additions,
-		Deletions:      enriched.Deletions,
-		IsDraft:        enriched.IsDraft,
-		Files:          files,
-		Commits:        commits,
-		Reviews:        reviews,
-		Comments:       comments,
+		Title:              enriched.Title,
+		Body:               body,
+		Author:             author,
+		State:              enriched.State,
+		ReviewDecision:     enriched.ReviewDecision,
+		Additions:          enriched.Additions,
+		Deletions:          enriched.Deletions,
+		IsDraft:            enriched.IsDraft,
+		Files:              files,
+		Commits:            commits,
+		Reviews:            reviews,
+		Comments:           comments,
+		ViewerReviewState:  viewerReviewState,
+		ViewerReviewedDate: viewerReviewedDate,
 	}
 
 	b, _ := json.Marshal(payload)
@@ -192,6 +207,51 @@ func BuildEnrichedNotificationPromptPayload(pr data.EnrichedPullRequestData) str
 		Reviews:        reviews,
 		Reviewers:      reviewers,
 		Labels:         labels,
+	}
+
+	b, _ := json.Marshal(payload)
+	return string(b)
+}
+
+type addressedPromptPayload struct {
+	Title       string         `json:"title"`
+	Author      string         `json:"author"`
+	CommitCount int            `json:"newCommitCount"`
+	Commits     []promptCommit `json:"newCommits"`
+	Files       []promptFile   `json:"files,omitempty"`
+}
+
+// BuildAddressedPromptPayload serializes the commits pushed after the viewer's review into
+// the JSON payload for the AddressedSummary LLM call.
+func BuildAddressedPromptPayload(pr data.EnrichedPullRequestData, commitCount int) string {
+	commits := make([]promptCommit, 0, commitCount)
+	if pr.ViewerLatestReview != nil {
+		reviewedAt := pr.ViewerLatestReview.CreatedAt
+		if pr.ViewerLatestReview.SubmittedAt != nil {
+			reviewedAt = *pr.ViewerLatestReview.SubmittedAt
+		}
+		for _, node := range pr.AllCommits.Nodes {
+			if node.Commit.CommittedDate.After(reviewedAt) {
+				commits = append(commits, promptCommit{Message: node.Commit.MessageHeadline})
+			}
+		}
+	}
+
+	files := make([]promptFile, 0, len(pr.Files.Nodes))
+	for _, f := range pr.Files.Nodes {
+		files = append(files, promptFile{
+			Path:      f.Path,
+			Additions: f.Additions,
+			Deletions: f.Deletions,
+		})
+	}
+
+	payload := addressedPromptPayload{
+		Title:       pr.Title,
+		Author:      pr.Author.Login,
+		CommitCount: commitCount,
+		Commits:     commits,
+		Files:       files,
 	}
 
 	b, _ := json.Marshal(payload)

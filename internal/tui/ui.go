@@ -781,10 +781,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.sidebar.SetContent(m.prView.View())
 				m.sidebar.ScrollToBottom()
 			} else {
-				// For notifications without comments (new PRs, state changes, etc.)
-				// show the Overview tab without scrolling
 				m.prView.GoToFirstTab()
 				m.sidebar.SetContent(m.prView.View())
+			}
+			if aiCmd := m.prView.FetchAISummary(); aiCmd != nil {
+				m.sidebar.SetContent(m.prView.View())
+				cmds = append(cmds, aiCmd)
 			}
 			m.markNotificationAsRead(msg.NotificationId)
 		} else {
@@ -1046,7 +1048,7 @@ func (m *Model) onViewedRowChanged() tea.Cmd {
 	sidebarCmd := m.syncSidebar()
 	enrichCmd := m.prView.EnrichCurrRow()
 	aiCmd := m.prView.FetchAISummary()
-	if aiCmd != nil {
+	if aiCmd != nil && m.ctx.View != config.NotificationsView {
 		m.sidebar.SetContent(m.prView.View())
 	}
 	m.sidebar.ScrollToTop()
@@ -1090,8 +1092,11 @@ func (m *Model) updateSection(id int, sType string, msg tea.Msg) (cmd tea.Cmd) {
 		m.repo, cmd = m.repo.Update(msg)
 
 	case notificationssection.SectionType:
-		if id < len(m.notifications) && m.notifications[id] != nil {
-			m.notifications[id], cmd = m.notifications[id].Update(msg)
+		for i, s := range m.notifications {
+			if s != nil && s.GetId() == id {
+				m.notifications[i], cmd = m.notifications[i].Update(msg)
+				break
+			}
 		}
 
 	case prssection.SectionType:
@@ -1425,11 +1430,9 @@ func (m *Model) loadNotificationContent() tea.Cmd {
 	subjectUrl := row.GetUrl()
 	latestCommentUrl := row.GetLatestCommentUrl()
 
-	// Show loading indicator
 	width := m.sidebar.GetSidebarContentWidth()
 	m.notificationView.SetRow(row)
 	m.notificationView.SetWidth(width)
-	m.sidebar.SetContent(m.notificationView.View())
 
 	switch subjectType {
 	case "PullRequest":

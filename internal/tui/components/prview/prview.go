@@ -57,11 +57,12 @@ var tabs = []string{"󱹺 AI Summary", " Overview", " Activity", " Comm
 
 // AISummaryMsg carries the final result of an AI summary fetch (streaming or cache hit).
 type AISummaryMsg struct {
-	PRURL     string
-	UpdatedAt time.Time
-	Duration  time.Duration
-	Data      *ai.PRSummaryResponse
-	Err       error
+	PRURL             string
+	UpdatedAt         time.Time
+	ViewerReviewState string
+	Duration          time.Duration
+	Data              *ai.PRSummaryResponse
+	Err               error
 }
 
 // AISummaryChunkMsg carries one streamed text chunk during an in-flight AI summary.
@@ -886,13 +887,18 @@ func (m *Model) FetchAISummary() tea.Cmd {
 	prURL := m.pr.Data.Primary.Url
 	updatedAt := m.pr.Data.Primary.UpdatedAt
 
+	viewerReviewState := ""
+	if vlr := m.pr.Data.Enriched.ViewerLatestReview; vlr != nil {
+		viewerReviewState = vlr.State
+	}
+
 	// Cache hit: return result immediately as a tea.Msg without an API call
-	cacheKey := ai.CacheKey{URL: prURL, UpdatedAt: updatedAt}
+	cacheKey := ai.CacheKey{URL: prURL, UpdatedAt: updatedAt, ViewerReviewState: viewerReviewState}
 	if cached, ok := m.ctx.AICache.Get(cacheKey); ok {
 		c := cached
 		m.aiSummaryLoading = true
 		return func() tea.Msg {
-			return AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Data: &c}
+			return AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, ViewerReviewState: viewerReviewState, Data: &c}
 		}
 	}
 
@@ -920,23 +926,23 @@ func (m *Model) FetchAISummary() tea.Cmd {
 
 		if err != nil && err != stdctx.Canceled {
 			log.Error("FetchAISummary: stream error", "err", err, "elapsed", elapsed)
-			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, Err: err}
+			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, ViewerReviewState: viewerReviewState, Duration: elapsed, Err: err}
 			return
 		}
 		if err == stdctx.Canceled {
-			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, Err: err}
+			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, ViewerReviewState: viewerReviewState, Duration: elapsed, Err: err}
 			return
 		}
 
 		parsed, parseErr := ai.ParsePRSummary(raw)
 		if parseErr != nil {
 			log.Error("FetchAISummary: parse error", "err", parseErr, "elapsed", elapsed)
-			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, Err: parseErr}
+			doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, ViewerReviewState: viewerReviewState, Duration: elapsed, Err: parseErr}
 			return
 		}
 
 		log.Debug("FetchAISummary: stream complete", "url", prURL, "elapsed", elapsed)
-		doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, Duration: elapsed, Data: &parsed}
+		doneCh <- AISummaryMsg{PRURL: prURL, UpdatedAt: updatedAt, ViewerReviewState: viewerReviewState, Duration: elapsed, Data: &parsed}
 	}()
 
 	reader := aiStreamReader{prURL: prURL, updatedAt: updatedAt, textCh: textCh, doneCh: doneCh}
@@ -958,11 +964,12 @@ func (m *Model) IsCurrentPR(url string) bool {
 // Display state is only updated when the message is for the currently shown PR.
 func (m *Model) SetAISummary(msg AISummaryMsg) {
 	isCurrentPR := m.pr != nil && m.pr.Data.Primary.Url == msg.PRURL
+	cacheKey := ai.CacheKey{URL: msg.PRURL, UpdatedAt: msg.UpdatedAt, ViewerReviewState: msg.ViewerReviewState}
 
 	// Always store successful results in cache — even for PRs the user has navigated away from.
 	if msg.Err == nil && msg.Data != nil && m.ctx != nil && m.ctx.AICache != nil {
 		log.Debug("SetAISummary: caching result", "url", msg.PRURL, "isCurrent", isCurrentPR)
-		m.ctx.AICache.Set(ai.CacheKey{URL: msg.PRURL, UpdatedAt: msg.UpdatedAt}, *msg.Data)
+		m.ctx.AICache.Set(cacheKey, *msg.Data)
 	}
 
 	if !isCurrentPR {
