@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -17,14 +18,25 @@ type Request struct {
 	Payload string // JSON-serialized PR context for the user message
 }
 
+// RulesConfig holds per-mode paths to Markdown files that override the default
+// behavioural rules (interest levels, review_status framing) in each system prompt.
+type RulesConfig struct {
+	PRSummary    string // sidebar PR summary (open PRs)
+	Notification string // desktop notification one-liner
+	Addressed    string // "new commits since your review" summary
+}
+
 // Client wraps the Anthropic SDK and is safe for concurrent use.
 type Client struct {
 	inner *anthropic.Client
 	model string
+	rules map[PromptMode]string // loaded rule overrides keyed by mode; absent = use defaults
 }
 
 // NewClient creates a Client. Returns an error if ANTHROPIC_API_KEY is not set.
-func NewClient(model string) (*Client, error) {
+// Each non-empty path in rules is read at init time; missing or unreadable files
+// fall back silently to the compiled-in defaults.
+func NewClient(model string, rules RulesConfig) (*Client, error) {
 	key := os.Getenv("ANTHROPIC_API_KEY")
 	if key == "" {
 		return nil, ErrNoAPIKey
@@ -32,8 +44,30 @@ func NewClient(model string) (*Client, error) {
 	if model == "" {
 		model = "claude-haiku-4-5-20251001"
 	}
+
+	loaded := make(map[PromptMode]string)
+	for mode, path := range map[PromptMode]string{
+		PRSummary:           rules.PRSummary,
+		NotificationSummary: rules.Notification,
+		AddressedSummary:    rules.Addressed,
+	} {
+		if path == "" {
+			continue
+		}
+		if strings.HasPrefix(path, "~/") {
+			if home, err := os.UserHomeDir(); err == nil {
+				path = filepath.Join(home, path[2:])
+			}
+		}
+		if b, err := os.ReadFile(path); err == nil {
+			if content := strings.TrimSpace(string(b)); content != "" {
+				loaded[mode] = content
+			}
+		}
+	}
+
 	c := anthropic.NewClient(option.WithAPIKey(key))
-	return &Client{inner: &c, model: model}, nil
+	return &Client{inner: &c, model: model, rules: loaded}, nil
 }
 
 // GenerateSummary sends a request to the Anthropic API and returns the raw text response.
@@ -43,7 +77,7 @@ func (c *Client) GenerateSummary(ctx context.Context, req Request) (string, erro
 		MaxTokens: 1024,
 		System: []anthropic.TextBlockParam{
 			{
-				Text:         SystemPrompt(req.Mode),
+				Text:         SystemPrompt(req.Mode, c.rules[req.Mode]),
 				CacheControl: anthropic.NewCacheControlEphemeralParam(),
 			},
 		},
@@ -84,7 +118,7 @@ func (c *Client) StreamSummary(
 		MaxTokens: 1024,
 		System: []anthropic.TextBlockParam{
 			{
-				Text:         SystemPrompt(req.Mode),
+				Text:         SystemPrompt(req.Mode, c.rules[req.Mode]),
 				CacheControl: anthropic.NewCacheControlEphemeralParam(),
 			},
 		},

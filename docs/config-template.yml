@@ -48,3 +48,7 @@ showAuthorIcons: true
 ai:
   enabled: true
   model: claude-haiku-4-5-20251001   # optional — see Anthropic docs for valid model IDs
+  # rules:                            # optional — per-mode Markdown files overriding interest/review rules
+  #   prSummary: ~/.config/gh-dash/rules-pr.md
+  #   notification: ~/.config/gh-dash/rules-notification.md
+  #   addressed: ~/.config/gh-dash/rules-addressed.md

@@ -97,14 +97,43 @@ When you open a PR the sidebar loads an **AI Summary** tab first. For open PRs i
 ```yaml
 ai:
   enabled: true
-  model: claude-haiku-4-5-20251001
+  model: claude-haiku-4-5-20251001   # optional — this is the default
+  rules:                              # optional — see "Customising rules" below
+    prSummary: ~/.config/gh-dash/rules-pr.md
+    notification: ~/.config/gh-dash/rules-notification.md
+    addressed: ~/.config/gh-dash/rules-addressed.md
 ```
 
 Any model ID from the [Anthropic docs](https://docs.anthropic.com/en/docs/about-claude/models) works. Haiku is the default for speed and cost.
 
 **Cache:** Summaries are cached in-memory for the process lifetime, keyed by `{PR URL, UpdatedAt, your review state}`. The summary re-fetches automatically when the PR gets new activity or your review state changes. To force a refresh, restart `gh dash`.
 
-**Prompts:** The system prompts and payload builders live in `internal/ai/prompt.go` and `internal/ai/prompt_builder.go`. They're compiled into the binary — to change the wording or structure, edit those files and rebuild (`go install .`).
+**Customising rules:** The prompts are split into two parts. The JSON output schema (field names, types, enums) is compiled into the binary and cannot be changed without rebuilding. The behavioural rules — what counts as HIGH/MED/LOW interest and how `review_status` is framed — can be overridden at runtime via per-mode Markdown files:
+
+| Key | Mode |
+|-----|------|
+| `rules.prSummary` | Sidebar summary for open PRs |
+| `rules.notification` | Desktop notification one-liner |
+| `rules.addressed` | "New commits since your review" summary |
+
+Each file's contents replace the default rules section for that mode only. The `MergedPRSummary` mode (changelog framing) has no rules section and is not configurable this way. Omitted or unreadable files fall back to the compiled-in defaults silently.
+
+Example `~/.config/gh-dash/rules-pr.md`:
+
+```markdown
+Interest level rules:
+- HIGH: DB migrations, API contract changes, security-sensitive code, breaking changes
+- MED: Feature work touching >5 files, new approvals unblocking a blocked PR
+- LOW: Everything else — dependency bumps, docs, CI, small fixes, already-reviewed PRs
+
+review_status rules:
+- Always name reviewers by @login.
+- If viewerReviewState == "APPROVED": lead with "You approved on {viewerReviewedDate}". Note follow-up commits if any.
+- If viewerReviewState == "CHANGES_REQUESTED": lead with "You requested changes on {viewerReviewedDate}". Note whether they appear addressed.
+- Otherwise: describe current review state using reviewer names.
+```
+
+**Prompts (advanced):** To change the JSON output schema itself, edit `internal/ai/prompt.go` and rebuild (`go install .`).
 
 **Failure:** If the stream errors mid-way you'll see partial output with an error line. There's no automatic retry — press `[` then `]` to re-render the tab or restart.
 

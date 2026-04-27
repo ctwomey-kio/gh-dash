@@ -669,7 +669,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			Background(m.ctx.Theme.SelectedBackground)
 
 		if m.ctx.Config.AI.Enabled {
-			if c, err := ai.NewClient(m.ctx.Config.AI.Model); err == nil {
+			if c, err := ai.NewClient(m.ctx.Config.AI.Model, ai.RulesConfig{
+				PRSummary:    m.ctx.Config.AI.Rules.PRSummary,
+				Notification: m.ctx.Config.AI.Rules.Notification,
+				Addressed:    m.ctx.Config.AI.Rules.Addressed,
+			}); err == nil {
 				m.ctx.AIClient = c
 				m.ctx.AICache = ai.NewSummaryCache(100)
 				m.ctx.AINotifCache = ai.NewCache[ai.NotificationSummaryResponse](100)

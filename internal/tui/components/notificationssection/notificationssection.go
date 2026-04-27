@@ -1070,14 +1070,6 @@ func fireAINotifForPR(
 		if cached, ok := ctx.AINotifCache.Get(key); ok {
 			resp = cached
 			found = true
-		} else if ctx.AICache != nil {
-			if full, ok := ctx.AICache.Get(key); ok {
-				resp = ai.NotificationSummaryResponse{
-					Interest: full.Interest,
-					Summary:  truncateNotifSummary(full.Summary, 150),
-				}
-				found = true
-			}
 		}
 
 		if !found {

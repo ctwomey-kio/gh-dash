@@ -320,9 +320,16 @@ type ThemeConfig struct {
 	Icons  *IconThemeConfig  `yaml:"icons,omitempty"  validate:"omitempty"`
 }
 
+type AIRulesConfig struct {
+	PRSummary    string `yaml:"prSummary,omitempty"`    // sidebar PR summary (open PRs)
+	Notification string `yaml:"notification,omitempty"` // desktop notification one-liner
+	Addressed    string `yaml:"addressed,omitempty"`    // "new commits since your review" summary
+}
+
 type AIConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Model   string `yaml:"model,omitempty"` // defaults to claude-sonnet-4-20250514
+	Enabled bool          `yaml:"enabled"`
+	Model   string        `yaml:"model,omitempty"` // defaults to claude-haiku-4-5-20251001
+	Rules   AIRulesConfig `yaml:"rules,omitempty"`
 }
 
 type Config struct {
